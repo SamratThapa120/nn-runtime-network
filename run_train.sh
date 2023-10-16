@@ -1,0 +1,1 @@
+CUDA_VISIBLE_DEVICES=1 python tiles_train.py --model=EarlyJoinSAGE --data_root="/app/dataset/npz_all/npz/tile/xla" --out_dir="/app/nn-runtime-network/workdir/tile_model" --cache_dir="/app/nn-runtime-network/cache/tile_model"

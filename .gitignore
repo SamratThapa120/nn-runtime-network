@@ -1,0 +1,9 @@
+run_train1.sh
+workdir
+cache
+**/__pycache__/
+**/ipynb_checkpoints/
+*.db
+NOTES
+notebooks/debug.ipynb
+notebooks/EDA.ipynb
