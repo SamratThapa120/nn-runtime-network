@@ -7,7 +7,7 @@ import torch
 class NpzDataset(Dataset):
     """Holds one data partition (train, test, validation) on device memory."""
 
-    def __init__(self, files, min_configs=2, max_configs=-1, normalizers=None,pad_config_nodes=True,pad_config_nodes_val=-1):
+    def __init__(self, files, min_configs=2, max_configs=-1, normalizers=None,pad_config_nodes=True,pad_config_nodes_val=-1,normalize_runtime=True,random_config_sampling=True):
         self.files = glob.glob(os.path.join(files, "*.npz"))
         self.min_configs = min_configs
         self.max_configs = max_configs
@@ -24,6 +24,8 @@ class NpzDataset(Dataset):
             )
         self.pad_config_nodes = pad_config_nodes
         self.pad_config_nodes_val = pad_config_nodes_val
+        self.normalize_runtime = normalize_runtime
+        self.random_config_sampling = random_config_sampling
     def __len__(self):
         return len(self.files)
     def _apply_normalizer(self, feature_matrix, used_columns, min_feat, max_feat, axis=1):
@@ -49,15 +51,17 @@ class NpzDataset(Dataset):
             print('graph has only %i configurations' % num_configs)
 
         if self.max_configs > 0 and num_configs > self.max_configs:
-            third = self.max_configs // 3
-            keep_indices = np.concatenate([
-                npz_data['argsort_config_runtime'][:third],  # Good configs.
-                npz_data['argsort_config_runtime'][-third:],  # Bad configs.
-                np.random.choice(
-                    npz_data['argsort_config_runtime'][third:-third],
-                    self.max_configs - 2 * third)
-            ], axis=0)
-            num_configs = self.max_configs
+            if self.random_config_sampling:
+                keep_indices = np.random.choice(np.arange(len(npz_data['node_config_feat'])),min(self.max_configs,len(npz_data['node_config_feat'])))
+            else:
+                third = self.max_configs // 3
+                keep_indices = np.concatenate([
+                    npz_data['argsort_config_runtime'][:third],  # Good configs.
+                    npz_data['argsort_config_runtime'][-third:],  # Bad configs.
+                    np.random.choice(
+                        npz_data['argsort_config_runtime'][third:-third],
+                        self.max_configs - 2 * third)
+                ], axis=0)
             npz_data['node_config_feat'] = npz_data['node_config_feat'][keep_indices]
             npz_data['config_runtime'] = npz_data['config_runtime'][keep_indices]
             
@@ -66,7 +70,11 @@ class NpzDataset(Dataset):
             newconf = np.ones(padded_shape)*self.pad_config_nodes_val
             newconf[:,npz_data["node_config_ids"],:] = npz_data["node_config_feat"]
             npz_data["node_config_feat"] = newconf
-
+        if self.normalize_runtime:
+            mmin,mmax = npz_data['config_runtime'].min(),npz_data['config_runtime'].max()
+            if mmin==mmax:
+                mmin=0
+            npz_data['config_runtime'] = (npz_data['config_runtime']-mmin)/(mmax-mmin)
         node_feats = npz_data["node_feat"]
         if self.normalize:
             node_feats = self._apply_normalizer(node_feats, *self.node_feat_norms, axis=1)
@@ -85,7 +93,6 @@ class NpzDataset(Dataset):
             'node_config_ids': torch.tensor(npz_data["node_config_ids"], dtype=torch.int32),
             'node_splits': torch.tensor(npz_data["node_splits"]),
             'config_runtimes': torch.tensor(npz_data["config_runtime"]),
-            'argsort_config_runtimes': torch.tensor(np.argsort(npz_data['config_runtime'])),
             'graph_id': graph_id,
             'total_nodes': npz_data['node_feat'].shape[0],
             'total_edges': npz_data['edge_index'].shape[0],
@@ -150,9 +157,9 @@ class GraphCollator:
 
         return {
             "node_features": torch.cat(node_feats,dim=0).float(),
-            "node_separation": node_separation,
-            "node_ops": torch.cat(nodeops, dim=0),
+            "node_separation": node_separation.long(),
+            "node_ops": torch.cat(nodeops, dim=0).long(),
             "edges": edges.permute(1,0).long(),
-            "config_runtimes": config_runtimes,
-            "batches": torch.tensor(batch_no)
+            "config_runtimes": config_runtimes.float(),
+            "batches": torch.tensor(batch_no).long()
         }
