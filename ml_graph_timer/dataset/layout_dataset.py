@@ -7,8 +7,10 @@ import torch
 class NpzDataset(Dataset):
     """Holds one data partition (train, test, validation) on device memory."""
 
-    def __init__(self, files, min_configs=2, max_configs=-1, normalizers=None,pad_config_nodes=True,pad_config_nodes_val=-1,normalize_runtime=True,random_config_sampling=True):
+    def __init__(self, files, min_configs=2, max_configs=-1, normalizers=None,pad_config_nodes=True,pad_config_nodes_val=-1,normalize_runtime=True,random_config_sampling=True,sample_num=None):
         self.files = glob.glob(os.path.join(files, "*.npz"))
+        if sample_num:
+            self.files = np.random.choice(self.files,min(len(self.files),sample_num))
         self.min_configs = min_configs
         self.max_configs = max_configs
         self.normalize = normalizers is not None
@@ -103,11 +105,11 @@ class NpzDataset(Dataset):
         return data_dict
 
 class GraphCollator:
-    def __init__(self,max_configs=10,configs_padding=0,runtime_padding=-1):
+    def __init__(self,max_configs=10,configs_padding=0,runtime_padding=-1,provide_pair_matrix=False):
         self.max_configs = max_configs
         self.configs_padding = configs_padding
         self.runtime_padding = runtime_padding
-    
+        self.provide_pair_matrix = provide_pair_matrix
     def _process_node_config_features(self, config_features):
         # Trim or pad the "configs" dimension
         if config_features.shape[0] > self.max_configs:
@@ -128,6 +130,31 @@ class GraphCollator:
             runtimes = torch.cat([runtimes, padding], dim=0)  # Pad
         return runtimes
     
+    def calculate_pair_gt_tensor(self,T):
+        batch_size, configs = T.shape
+
+        # Extend the last and second last dimension of T for broadcasting
+        T_ext1 = T.unsqueeze(-1)   # shape becomes [batch_size, configs, 1]
+        T_ext2 = T.unsqueeze(-2)   # shape becomes [batch_size, 1, configs]
+
+        # Initialize F with 2s (since that's one of the conditions)
+        F = 2 * torch.ones(batch_size, configs, configs)
+
+        # Conditions to create the tensor F
+        F[T_ext1 > T_ext2] = 0
+        F[T_ext1 < T_ext2] = 1
+
+        mask1 = (T_ext1 < 0).expand_as(F)
+        mask2 = (T_ext2 < 0).expand_as(F)
+        
+        F[mask1 | mask2] = -1
+
+        # Setting diagonal to -1
+        for i in range(configs):
+            F[:, i, i] = -1
+
+        return F
+
     def __call__(self, batch):
         """
         batch: List of dictionaries. Each dictionary corresponds to data for a single graph.
@@ -155,11 +182,16 @@ class GraphCollator:
         config_runtimes_list = [self._process_config_runtimes(item["config_runtimes"]) for item in batch]
         config_runtimes = torch.stack(config_runtimes_list)  # Concatenate along the batch dimension
 
+        if self.provide_pair_matrix:
+            optimization_matrix = self.calculate_pair_gt_tensor(config_runtimes)
+        else:
+            optimization_matrix = torch.tensor([0])
         return {
             "node_features": torch.cat(node_feats,dim=0).float(),
             "node_separation": node_separation.long(),
             "node_ops": torch.cat(nodeops, dim=0).long(),
             "edges": edges.permute(1,0).long(),
             "config_runtimes": config_runtimes.float(),
-            "batches": torch.tensor(batch_no).long()
+            "batches": torch.tensor(batch_no).long(),
+            "optimization_matrix": optimization_matrix.long()
         }
