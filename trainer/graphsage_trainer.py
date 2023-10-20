@@ -6,7 +6,7 @@ from torch.utils.data import DataLoader, DistributedSampler
 from .utils import setup_logger,MetricsStore
 import os
 from tqdm import tqdm
-# from ml_graph_timer.callbacks.evaluation import ModelValidationCallback
+from ml_graph_timer.callbacks.evaluation import ModelValidationCallback
 
 from contextlib import nullcontext
 
@@ -39,8 +39,9 @@ class Trainer:
             self.start_epoch = self.current_step//self.steps_per_epoch
             model.load_state_dict(statedict["model_state_dict"])
             print("loaded model state from step: ",self.current_step)
-            for _ in range(self.current_step):
-                self.scheduler.step()
+            if self.scheduler is not None:
+                for _ in range(self.current_step):
+                    self.scheduler.step()
 
         collate_func=None
         if hasattr(self,"dataloder_collate"):
@@ -54,7 +55,7 @@ class Trainer:
 
         if self.rank==0:
             self.valid_loader = DataLoader(self.valid_dataset,collate_fn=collate_func, batch_size=self.VALIDATION_BS, pin_memory=self.PIN_MEMORY, num_workers=self.NUM_WORKERS_VAL)
-            # self.evaluation_callback = ModelValidationCallback(self,self.metrics,self.valid_loader,self.tokenizer,self.PAD_TOKEN)
+            self.evaluation_callback = ModelValidationCallback(self,self.metrics,self.valid_loader)
         if self.AUTOCAST:
             self.train_context = torch.autocast(device_type="cuda" if torch.cuda.is_available() else "cpu", dtype=torch.float16)
         else:
@@ -77,12 +78,14 @@ class Trainer:
                                      batch["edges"].to(self.device), 
                                      batch["batches"].to(self.device)
                                      )
-                loss = self.criterion(outputs.sigmoid(), batch["config_runtimes"].to(self.device))/self.accum_steps
+                loss = self.criterion(outputs, batch["config_runtimes"].to(self.device))/self.accum_steps
                 loss.backward()
                 if ((i + 1) % self.accum_steps == 0):
+                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.CLIP_NORM)
                     self.optimizer.step()
                     self.optimizer.zero_grad()
-                self.scheduler.step()
+                if self.scheduler is not None:
+                    self.scheduler.step()
             total_loss += loss.item()
             if i%updatefreq==0:
                 if torch.isnan(loss):
@@ -108,60 +111,17 @@ class Trainer:
             return
         self.model.eval()
         self.evaluation_callback(current_step)
-        self.evaluation_callback_ood(current_step)
 
-    def infer(self, inputs):
-        if self.augoregressive_inference:
-            return self._inferautoreg(inputs)
-        else:
-            return self._inferonepass(inputs)
-    
-    def _inferonepass(self, inputs):
-        if self.DISTRIBUTED:
-            model = self.model.module
-            
-        else:
-            model = self.model
-        generated_tokens = torch.argmax(model(inputs).detach().cpu(), dim=-1)
-        gtkns = []
-        generated_tokens = generated_tokens[:, 1:]
-        for gen in generated_tokens:
-            end_pos = (gen == self.END_TOKEN).nonzero(as_tuple=True)[0]
-            if len(end_pos) > 0:
-                gen = gen[:end_pos[0]] 
-            gtkns.append(gen)
-        return generated_tokens
-    def _inferautoreg(self, inputs):
-        if self.DISTRIBUTED:
-            model = self.model.module
-            
-        else:
-            model = self.model
-        
-        batch_size = inputs.size(0)
-        generated_tokens = torch.ones((batch_size, 1), dtype=torch.long, device=self.device) * self.START_TOKEN
-        encoded_logits = model.encoder(inputs)
-        eos_flags = torch.zeros(batch_size, dtype=torch.bool, device=self.device)
+    def infer(self, batch):
+        with torch.no_grad():
+            outputs = self.model(batch["node_features"].to(self.device), 
+                                batch["node_separation"].to(self.device), 
+                                batch["node_ops"].to(self.device), 
+                                batch["edges"].to(self.device), 
+                                batch["batches"].to(self.device)
+                            ).detach().cpu()
+        return outputs
 
-        for _ in range(self.MAX_PREDICTION_LENGTH):
-            logits = model.decoder(generated_tokens, encoded_logits)
-            next_token = torch.argmax(logits[:, -1, :], dim=-1, keepdim=True)
-            generated_tokens = torch.cat([generated_tokens, next_token], dim=1)
-
-            # Update end-of-sequence flags
-            eos_flags = eos_flags | (next_token.squeeze(-1) == self.END_TOKEN)
-
-            # Stop condition: if all sequences in the batch have generated <eos>
-            if eos_flags.all():
-                break
-        gtkns = []
-        generated_tokens = generated_tokens[:, 1:].detach().cpu()
-        for gen in generated_tokens:
-            end_pos = (gen == self.END_TOKEN).nonzero(as_tuple=True)[0]
-            if len(end_pos) > 0:
-                gen = gen[:end_pos[0]] 
-            gtkns.append(gen)
-        return gtkns
 
     def get_state_dict(self):
         if self.DISTRIBUTED:

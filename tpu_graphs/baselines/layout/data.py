@@ -531,7 +531,7 @@ def get_npz_split(
   files = tf.io.gfile.glob(glob_pattern)
   if not files:
     raise ValueError('No files matched: ' + glob_pattern)
-  if _TOY_DATA.value:
+  if False:
     files = files[:5]
 
   cache_filename = None
@@ -539,7 +539,7 @@ def get_npz_split(
     if not tf.io.gfile.exists(cache_dir):
       tf.io.gfile.makedirs(cache_dir)
     filename_hash = hashlib.md5(
-        f'{split_path}:{min_configs}:{max_configs}:{_TOY_DATA.value}'.encode()
+        f'{split_path}:{min_configs}:{max_configs}:{False}'.encode()
         ).hexdigest()
     cache_filename = os.path.join(cache_dir, f'{filename_hash}-cache.npz')
     print('dataset cache file: ', cache_filename)

@@ -73,10 +73,11 @@ class NpzDataset(Dataset):
             newconf[:,npz_data["node_config_ids"],:] = npz_data["node_config_feat"]
             npz_data["node_config_feat"] = newconf
         if self.normalize_runtime:
-            mmin,mmax = npz_data['config_runtime'].min(),npz_data['config_runtime'].max()
-            if mmin==mmax:
-                mmin=0
-            npz_data['config_runtime'] = (npz_data['config_runtime']-mmin)/(mmax-mmin)
+            npz_data['config_runtime'] = npz_data['config_runtime']/ 1e7
+            # mmin,mmax = npz_data['config_runtime'].min(),npz_data['config_runtime'].max()
+            # if mmin==mmax:
+            #     mmin=0
+            # npz_data['config_runtime'] = (npz_data['config_runtime']-mmin)/(mmax-mmin)
         node_feats = npz_data["node_feat"]
         if self.normalize:
             node_feats = self._apply_normalizer(node_feats, *self.node_feat_norms, axis=1)
@@ -130,7 +131,7 @@ class GraphCollator:
             runtimes = torch.cat([runtimes, padding], dim=0)  # Pad
         return runtimes
     
-    def calculate_pair_gt_tensor(self,T):
+    def calculate_pair_gt_tensor_classification(self,T):
         batch_size, configs = T.shape
 
         # Extend the last and second last dimension of T for broadcasting
@@ -138,20 +139,34 @@ class GraphCollator:
         T_ext2 = T.unsqueeze(-2)   # shape becomes [batch_size, 1, configs]
 
         # Initialize F with 2s (since that's one of the conditions)
-        F = 2 * torch.ones(batch_size, configs, configs)
+        F = torch.ones(batch_size, configs, configs)
 
         # Conditions to create the tensor F
-        F[T_ext1 > T_ext2] = 0
-        F[T_ext1 < T_ext2] = 1
+        F[T_ext1 > T_ext2] = 2
+        F[T_ext1 < T_ext2] = 0
 
-        mask1 = (T_ext1 < 0).expand_as(F)
-        mask2 = (T_ext2 < 0).expand_as(F)
-        
-        F[mask1 | mask2] = -1
+        mask1 = (T_ext1 == self.runtime_padding).expand_as(F)
+        F[mask1] = -1
 
         # Setting diagonal to -1
         for i in range(configs):
             F[:, i, i] = -1
+
+        return F
+    def calculate_pair_gt_tensor(self,T):
+        batch_size, configs = T.shape
+
+        # Extend dimensions of T for broadcasting
+        T_ext1 = T.unsqueeze(-1)   # shape becomes [batch_size, configs, 1]
+        T_ext2 = T.unsqueeze(-2)   # shape becomes [batch_size, 1, configs]
+
+        # Compute F according to the given formula
+        F = 1 + T_ext1 - T_ext2
+
+        # Masking conditions
+        mask_invalid = (T_ext1 == self.runtime_padding) | (T_ext2 == -1)
+
+        F[mask_invalid] = -1
 
         return F
 
@@ -193,5 +208,5 @@ class GraphCollator:
             "edges": edges.permute(1,0).long(),
             "config_runtimes": config_runtimes.float(),
             "batches": torch.tensor(batch_no).long(),
-            "optimization_matrix": optimization_matrix.long()
+            "optimization_matrix": optimization_matrix.float()
         }
