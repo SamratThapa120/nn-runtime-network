@@ -115,12 +115,11 @@ class NpzDataset(Dataset):
         return data_dict
 
 class GraphCollator:
-    def __init__(self,max_configs=10,configs_padding=0,runtime_padding=-1,mask_invalid_value=-1,provide_pair_matrix=False,streaming_processor=False):
+    def __init__(self,max_configs=10,configs_padding=0,runtime_padding=-1,mask_invalid_value=-1,provide_pair_matrix=False):
         self.max_configs = max_configs
         self.configs_padding = configs_padding
         self.runtime_padding = runtime_padding
         self.provide_pair_matrix = provide_pair_matrix
-        self.streaming_processor = streaming_processor
         self.mask_invalid_value = mask_invalid_value
         
     def _process_node_config_features(self, config_features):
@@ -194,14 +193,13 @@ class GraphCollator:
         nodeops = []
         batch_no=[]
         for i,item in enumerate(batch):
-            if not self.streaming_processor:
-                pad_trim_conf = self._process_node_config_features(item["node_config_features"])
-                for ptc in pad_trim_conf:
-                    node_feats.append(item["node_features"])
-                    node_conf_feats.append(ptc)
-                    edges.append(item["edges"])
-                    nodeops.append(item["node_ops"])
-                    batch_no.append(i)
+            pad_trim_conf = self._process_node_config_features(item["node_config_features"])
+            for ptc in pad_trim_conf:
+                node_feats.append(item["node_features"])
+                node_conf_feats.append(ptc)
+                edges.append(item["edges"])
+                nodeops.append(item["node_ops"])
+                batch_no.append(i)
         # Edges
         node_separation = torch.cumsum(torch.tensor([f.shape[0] for f in node_feats]), dim=0)
         cum_node_counts = torch.cat([torch.tensor([0]), node_separation[:-1]])  # cumulative node counts
@@ -226,3 +224,30 @@ class GraphCollator:
             "batches": torch.tensor(batch_no).long(),
             "optimization_matrix": optimization_matrix.float()
         }
+class StreamingCollator(GraphCollator):
+    def __init__(self,batch_size=128,*args,**kwargs):
+        super().__init__(*args,**kwargs)
+        self.batch_size = batch_size
+
+    def __call__(self, info):
+        assert len(info)==1
+        info = info[0]
+        COPY_KEYS = ['node_features','node_ops','edges','node_config_ids','node_splits','graph_id']
+        total_configs = len(info["config_runtimes"])
+
+        batches = []
+        for i in range(0,total_configs,self.max_configs):
+            if len(batches)==self.batch_size:
+                yield super().__call__(batches)
+                batches = []
+            tdata = {k:info[k] for k in COPY_KEYS}
+            tdata["node_config_features"] = info["node_config_features"][i:(i+self.max_configs)]
+            tdata["config_runtimes"] = info["config_runtimes"][i:(i+self.max_configs)]
+            batches.append(tdata)
+        if i+self.max_configs<total_configs:
+            tdata = {k:info[k] for k in COPY_KEYS}
+            tdata["node_config_features"] = info["node_config_features"][i:]
+            tdata["config_runtimes"] = info["config_runtimes"][i:]
+            batches.append(tdata) 
+        if len(batches)>0:
+            yield super().__call__(batches)

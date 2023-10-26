@@ -5,6 +5,7 @@ from tqdm import tqdm
 import os
 import numpy as np
 from allrank.models.losses import listMLE,lambdaLoss
+from scipy import stats
 
 def ordered_pair_accuracy(y_true, y_pred):
     assert y_true.shape == y_pred.shape, "Shapes of ground truth and prediction must be the same"
@@ -19,6 +20,11 @@ def ordered_pair_accuracy(y_true, y_pred):
     total_pairs = batch_size * len(i)
     opa = correct_pairs / total_pairs
     return opa
+
+def kendalltau(y_true, y_pred):
+    assert y_true.shape == y_pred.shape, "Shapes of ground truth and prediction must be the same"
+    
+    return np.mean([stats.kendalltau(a,b).correlation for a,b in zip(y_true,y_pred)])
 
 class ModelValidationCallback:
     def __init__(self,model,metrics,valid_loader):
@@ -47,7 +53,9 @@ class ModelValidationCallback:
 
         opa = ordered_pair_accuracy(torch.concat(truths,0),torch.concat(predictions,0)).item()
         self.metrics(current_step,"ordered_pair_accuracy",opa)
+        self.metrics(current_step,"kendall_tau",kendalltau(torch.concat(truths,0).numpy(),torch.concat(predictions,0).numpy()))
         self.metrics(current_step,"valid_loss",loss/batch_count)
+
 
 
         if opa>=self.opa:

@@ -2,7 +2,7 @@ import pandas as pd
 import torch
 import os 
 from ml_graph_timer.model.graphsage import LayoutGraphModel,GraphModelArugments
-from ml_graph_timer.dataset.layout_dataset import NpzDataset,GraphCollator
+from ml_graph_timer.dataset.layout_dataset import NpzDataset,GraphCollator,StreamingCollator
 from ml_graph_timer.losses.losses import CustomMAELoss,CustomMSELoss
 from allrank.models.losses import listMLE
 
@@ -70,8 +70,9 @@ class Configs(Base):
         
         self.train_dataset = NpzDataset(self.TRAIN_DATA_PATH,min_configs=self.MIN_CONFIGS, max_configs=self.SAMPLE_CONFIGS,normalizers=self.NORMALIZER_PATH,sample_num=self.USE_DATASET_LEN)
         self.valid_dataset = NpzDataset(self.VALID_DATA_PATH,min_configs=self.MIN_CONFIGS, max_configs=self.SAMPLE_CONFIGS,normalizers=self.NORMALIZER_PATH,sample_num = self.USE_DATASET_LEN,random_config_sampling=False,isvalid=True)
+        self.test_dataset = NpzDataset(self.TEST_DATA_PATH,min_configs=self.MIN_CONFIGS, max_configs=-1,normalizers=self.NORMALIZER_PATH,sample_num = self.USE_DATASET_LEN,random_config_sampling=False,isvalid=True)
 
-        print(f"length of train: {len(self.train_dataset)}, length of valid: {len(self.valid_dataset)}")
+        print(f"length of train: {len(self.train_dataset)}, length of valid: {len(self.valid_dataset)}, length of test: {len(self.test_dataset)}")
 
         self.optimizer = torch.optim.Adam(self.model.parameters(),lr=self.LR,weight_decay=self.WD)
         self.steps_per_epoch = len(self.train_dataset)//(self.SAMPLES_PER_GPU*self.N_GPU)+1
@@ -85,3 +86,4 @@ class Configs(Base):
 
 
         self.dataloder_collate = GraphCollator(max_configs=self.SAMPLE_CONFIGS,configs_padding=self.CONFIG_PADDING,runtime_padding=self.RUNTIME_PADDING,provide_pair_matrix=self.IS_PAIR_TRAINING)
+        self.stream_dataloder_collate = StreamingCollator(batch_size=8,max_configs=self.SAMPLE_CONFIGS,configs_padding=self.CONFIG_PADDING,runtime_padding=self.RUNTIME_PADDING,provide_pair_matrix=self.IS_PAIR_TRAINING)

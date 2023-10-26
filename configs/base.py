@@ -1,8 +1,8 @@
 
 import torch
 class Base:
-    def load_state_dict(self,path):
-        statedict = torch.load(path)
+    def load_state_dict(self,path,map_location="cpu"):
+        statedict = torch.load(path,map_location=map_location)
         print("loading model checkpoint from epoch: ",statedict["current_step"])
         self.model.load_state_dict(statedict["model_state_dict"])
     
