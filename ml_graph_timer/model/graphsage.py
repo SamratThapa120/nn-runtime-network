@@ -66,7 +66,9 @@ class GraphModelArugments:
     num_heads: int = 4
 
     is_pair_modeling: bool = False
-
+    project_after_graph_encoder: bool = False 
+    graphsage_aggr: str = "mean"
+    return_positive_values: bool = False
 class LayoutGraphModel(torch.nn.Module):
     def __init__(self,arguments: GraphModelArugments):
         super().__init__()
@@ -76,8 +78,8 @@ class LayoutGraphModel(torch.nn.Module):
                                        hidden_channels=arguments.graphsage_hidden,
                                        num_layers=arguments.graphsage_layers,
                                        dropout=arguments.graphsage_dropout,
-                                       norm=L2NormalizationLayer(dim=1),
-                                       act=torch.nn.LeakyReLU()
+                                       normalize=True,
+                                       aggr=arguments.graphsage_aggr,
                                        )
         self.node_features_mlp = torch.nn.Sequential(
             torch.nn.Linear(arguments.node_feature_dim,arguments.node_feature_dim*arguments.node_feature_expand),
@@ -96,18 +98,24 @@ class LayoutGraphModel(torch.nn.Module):
         else:
             self.attention_module = None
         self.embed_drop = torch.nn.Dropout(arguments.embedding_dropout)
-        self.aggregation_norm = torch.nn.LayerNorm(arguments.graphsage_hidden)
-        self.norm_l = L2NormalizationLayer(2)
+        # self.aggregation_norm = torch.nn.LayerNorm(arguments.graphsage_hidden)
+        # self.norm_l = L2NormalizationLayer(2)
         self.final_classifier = torch.nn.Sequential(
             torch.nn.Dropout(arguments.final_dropout),
             torch.nn.Linear(arguments.graphsage_hidden,1)
         )
 
-    def forward(self,node_features, node_separation, node_ops, edges, batches,*args,**kwargs):
+    def forward(self,node_features, node_config_features, node_separation, node_ops, edges, batches,*args,**kwargs):
         opcode_embed = self.embed_drop(self.opcode_embeddings(node_ops))
+        node_features = torch.concat([node_features,node_config_features],dim=1)
         x = torch.cat([node_features,opcode_embed],dim=1)
         x = self.node_features_mlp(x)
         x = self.graph_encoder(x,edges)
+        if self.arguments.project_after_graph_encoder:
+            # aggregated = self.aggregation_norm(aggregated)
+            x = self.final_classifier(x)
+            if self.arguments.return_positive_values:
+                x = x.abs()
         start_idx = 0
         aggregated = [[] for _ in torch.unique(batches)]
         for ns,b in zip(node_separation,batches):
@@ -115,14 +123,17 @@ class LayoutGraphModel(torch.nn.Module):
             aggregated[b].append(torch.sum(x[start_idx:end_idx], dim=0))
             start_idx = end_idx
         aggregated = torch.stack([torch.stack(x) for x in aggregated])
-        aggregated = self.aggregation_norm(aggregated)
-        if self.attention_module is not None:
-            aggregated = self.attention_module(aggregated)
+        # if self.attention_module is not None:
+        #     aggregated = self.attention_module(aggregated)
         
-        if self.arguments.is_pair_modeling:
-            aggregated = self.norm_l(aggregated)
-            return 1+torch.bmm(aggregated,aggregated.transpose(1,2))   # This is like calculating the cosine between two vectors. We add 1 to make the value in range [0,2]
-        aggregated = torch.squeeze(self.final_classifier(aggregated),2)
-        return aggregated
+        # if self.arguments.is_pair_modeling:
+        #     aggregated = self.norm_l(aggregated)
+        #     return 1+torch.bmm(aggregated,aggregated.transpose(1,2))   # This is like calculating the cosine between two vectors. We add 1 to make the value in range [0,2]
+        if not self.arguments.project_after_graph_encoder:
+            # aggregated = self.aggregation_norm(aggregated)
+            aggregated = self.final_classifier(aggregated)
+            if self.arguments.return_positive_values:
+                aggregated = aggregated.abs()
+        return torch.squeeze(aggregated,2)
         
 

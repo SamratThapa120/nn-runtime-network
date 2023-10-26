@@ -8,3 +8,12 @@ class CustomMAELoss:
     def __call__(self,truth,pred):
         mask = truth !=self.padding
         return self.lossf(truth[mask],pred[mask])
+
+class CustomMSELoss:
+    def __init__(self,padding=-1):
+        self.padding = padding
+        self.lossf = torch.nn.MSELoss(reduction="mean")
+    
+    def __call__(self,truth,pred):
+        mask = truth !=self.padding
+        return self.lossf(truth[mask],pred[mask])

@@ -3,7 +3,7 @@ workdir
 cache
 **/__pycache__/
 **/ipynb_checkpoints/
+notebooks/*
+!notebooks/create_symlink_splits.ipynb
 *.db
 NOTES
-notebooks/debug.ipynb
-notebooks/EDA.ipynb

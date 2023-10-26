@@ -9,11 +9,19 @@ from tqdm import tqdm
 from ml_graph_timer.callbacks.evaluation import ModelValidationCallback
 
 from contextlib import nullcontext
+import optuna
+from dataclasses import dataclass, asdict
+import json
 
 class Trainer:
     def __init__(self, base_obj):
 
         self.__dict__.update(base_obj.get_all_attributes())
+
+        #Create a dictionary to save the configuration files
+        all_configs = self.__dict__.copy()
+        all_configs = {k:v for k,v in all_configs.items() if type(v) in {int,float,str,bool}}
+        all_configs["model_arguments"] = asdict(self.model.arguments)
 
         if self.DISTRIBUTED:
             self.rank = dist.get_rank()
@@ -56,29 +64,34 @@ class Trainer:
         if self.rank==0:
             self.valid_loader = DataLoader(self.valid_dataset,collate_fn=collate_func, batch_size=self.VALIDATION_BS, pin_memory=self.PIN_MEMORY, num_workers=self.NUM_WORKERS_VAL)
             self.evaluation_callback = ModelValidationCallback(self,self.metrics,self.valid_loader)
+            with open(os.path.join(self.OUTPUTDIR,'configs.json'), 'w') as file:
+                json.dump(all_configs, file, indent=4)
         if self.AUTOCAST:
             self.train_context = torch.autocast(device_type="cuda" if torch.cuda.is_available() else "cpu", dtype=torch.float16)
         else:
             self.train_context = nullcontext()
         self.accum_steps = self.GRADIENT_STEPS
+        self.target_key = "optimization_matrix" if self.IS_PAIR_TRAINING else "config_runtimes"
     #@profile
-    def train_one_epoch(self,epoch):
+    def train_one_epoch(self,epoch,early_stop=False,tolerance=5):
         self.model.train()
         total_loss = 0.0
         num_batches = 0
         tqdm_loader = tqdm(self.train_loader,desc=f"Train epoch: {epoch}",disable=self.rank!=0)
-        updatefreq=5
+        updatefreq=1
 
         self.optimizer.zero_grad()
         for i,batch in enumerate(tqdm_loader):
             with self.train_context  and torch.set_grad_enabled(True):
                 outputs = self.model(batch["node_features"].to(self.device), 
+                                     batch["node_config_features"].to(self.device), 
                                      batch["node_separation"].to(self.device), 
                                      batch["node_ops"].to(self.device), 
                                      batch["edges"].to(self.device), 
                                      batch["batches"].to(self.device)
                                      )
-                loss = self.criterion(outputs, batch["config_runtimes"].to(self.device))/self.accum_steps
+                
+                loss = self.criterion(outputs, batch[self.target_key].to(self.device))/self.accum_steps
                 loss.backward()
                 if ((i + 1) % self.accum_steps == 0):
                     torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.CLIP_NORM)
@@ -96,16 +109,23 @@ class Trainer:
             self.current_step+=1
             if self.current_step%self.VALIDATION_FREQUENCY==0:
                 self.optimizer.zero_grad()
-                dist.barrier()
+                if self.DISTRIBUTED:
+                    dist.barrier()
                 if self.rank == 0:
                     self.validate(self.current_step)
-                    avg_loss = total_loss / num_batches
-                    self.metrics(self.current_step,"training_loss",avg_loss)
                     self.logger.info(f"###Iter: {self.current_step}  ::  {self.metrics.get_metrics_by_epoch(self.current_step)}")
-                    num_batches=0
-                    total_loss=0.0
-                dist.barrier()
-
+                if self.DISTRIBUTED:
+                    dist.barrier()
+                if early_stop==True:
+                    trainlosses = self.metrics.get_last_n_metric("training_loss",-1)
+                    opa = self.metrics.get_last_n_metric("ordered_pair_accuracy",-1)
+                    if( min(trainlosses) not in trainlosses[-tolerance:] ) or ( min(opa) not in opa[-tolerance:]):
+                        return False
+        if self.rank == 0:            
+            avg_loss = total_loss / num_batches
+            self.metrics(self.current_step,"training_loss",avg_loss)
+            self.logger.info(f"###Iter: {self.current_step}  ::  {self.metrics.get_metrics_by_epoch(self.current_step)}")
+        return True
     def validate(self,current_step):
         if self.rank != 0 or current_step%self.VALIDATION_FREQUENCY!=0:
             return
@@ -115,6 +135,7 @@ class Trainer:
     def infer(self, batch):
         with torch.no_grad():
             outputs = self.model(batch["node_features"].to(self.device), 
+                                batch["node_config_features"].to(self.device),  
                                 batch["node_separation"].to(self.device), 
                                 batch["node_ops"].to(self.device), 
                                 batch["edges"].to(self.device), 
@@ -146,3 +167,16 @@ class Trainer:
             self._savemodel(self.current_step,os.path.join(self.OUTPUTDIR,"latest_model.pkl"))
         if self.rank==0:
             self.metrics.to_dataframe().to_csv(os.path.join(self.OUTPUTDIR,"metrics.csv"))
+    
+    
+    def tune(self,prune_epochs=5):
+
+        if self.rank==0:
+            print("Starting tuning....")
+        for epoch in range(self.start_epoch,self.EPOCHS):
+            if self.DISTRIBUTED:
+                self.train_sampler.set_epoch(epoch)
+            continue_train = self.train_one_epoch(epoch,early_stop=True,prune_epochs=prune_epochs)
+            if not continue_train:
+                return self.evaluation_callback.opa
+        return self.evaluation_callback.opa

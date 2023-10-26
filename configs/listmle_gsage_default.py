@@ -3,17 +3,17 @@ import torch
 import os 
 from ml_graph_timer.model.graphsage import LayoutGraphModel,GraphModelArugments
 from ml_graph_timer.dataset.layout_dataset import NpzDataset,GraphCollator
-from ml_graph_timer.losses.losses import CustomMAELoss
+from ml_graph_timer.losses.losses import CustomMAELoss,CustomMSELoss
 from allrank.models.losses import listMLE
 
 from .base import Base
 
 class Configs(Base):
-    OUTPUTDIR="../workdir/listmle_graphsage"
+    OUTPUTDIR="../workdir/listmle_graphsage_default_full"
 
-    TRAIN_DATA_PATH="/app/dataset/various_splits/all_layout/train"
-    VALID_DATA_PATH="/app/dataset/various_splits/all_layout/valid"
-    VALID_DATA_PATH="/app/dataset/various_splits/all_layout/test"
+    TRAIN_DATA_PATH="/app/dataset/various_splits/default_only/train"
+    VALID_DATA_PATH="/app/dataset/various_splits/default_only/valid"
+    VALID_DATA_PATH="/app/dataset/various_splits/default_only/test"
     NORMALIZER_PATH="/app/dataset/various_splits/all_layout/normalizers.npy"
 
     OPTUNA_TUNING_DB="sqlite:///study.db"
@@ -75,6 +75,8 @@ class Configs(Base):
         self.scheduler = None
         # self.scheduler = torch.optim.lr_scheduler.OneCycleLR(self.optimizer,max_lr=self.LR,steps_per_epoch=self.steps_per_epoch,epochs=self.EPOCHS,pct_start=0.1)
         # self.criterion = CustomMAELoss(padding=self.RUNTIME_PADDING)
+        # self.criterion = CustomMSELoss(padding=self.RUNTIME_PADDING)
+    
         self.criterion = listMLE
 
 

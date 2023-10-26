@@ -7,7 +7,8 @@ import torch
 class NpzDataset(Dataset):
     """Holds one data partition (train, test, validation) on device memory."""
 
-    def __init__(self, files, min_configs=2, max_configs=-1, normalizers=None,pad_config_nodes=True,pad_config_nodes_val=-1,normalize_runtime=True,random_config_sampling=True,sample_num=None):
+    def __init__(self, files, min_configs=2, max_configs=-1, normalizers=None,pad_config_nodes=True,pad_config_nodes_val=-1,normalize_runtime=False,random_config_sampling=True,sample_num=None,isvalid=False):
+        self.isvalid = isvalid
         self.files = glob.glob(os.path.join(files, "*.npz"))
         if sample_num:
             self.files = np.random.choice(self.files,min(len(self.files),sample_num))
@@ -47,23 +48,30 @@ class NpzDataset(Dataset):
         assert npz_data['node_config_feat'].shape[2] == 18
 
         npz_data['node_splits'] = npz_data['node_splits'].reshape([-1])
-        npz_data['argsort_config_runtime'] = np.argsort(npz_data['config_runtime'])
 
         if num_configs < self.min_configs:
             print('graph has only %i configurations' % num_configs)
 
         if self.max_configs > 0 and num_configs > self.max_configs:
-            if self.random_config_sampling:
+            if self.isvalid:
+                interval_num = (len(npz_data['node_config_feat'])//self.max_configs)-1
+                sorted_times = np.argsort(npz_data['config_runtime'])
+                keep_indices = sorted_times[np.arange(0,len(npz_data['node_config_feat']),interval_num)]
+                np.random.shuffle(keep_indices)
+            elif self.random_config_sampling:
                 keep_indices = np.random.choice(np.arange(len(npz_data['node_config_feat'])),min(self.max_configs,len(npz_data['node_config_feat'])))
+                np.random.shuffle(keep_indices)
             else:
-                third = self.max_configs // 3
-                keep_indices = np.concatenate([
-                    npz_data['argsort_config_runtime'][:third],  # Good configs.
-                    npz_data['argsort_config_runtime'][-third:],  # Bad configs.
-                    np.random.choice(
-                        npz_data['argsort_config_runtime'][third:-third],
-                        self.max_configs - 2 * third)
-                ], axis=0)
+                raise NotImplementedError()
+                # npz_data['argsort_config_runtime'] = np.argsort(npz_data['config_runtime'])
+                # third = self.max_configs // 3
+                # keep_indices = np.concatenate([
+                #     npz_data['argsort_config_runtime'][:third],  # Good configs.
+                #     npz_data['argsort_config_runtime'][-third:],  # Bad configs.
+                #     np.random.choice(
+                #         npz_data['argsort_config_runtime'][third:-third],
+                #         self.max_configs - 2 * third)
+                # ], axis=0)
             npz_data['node_config_feat'] = npz_data['node_config_feat'][keep_indices]
             npz_data['config_runtime'] = npz_data['config_runtime'][keep_indices]
             
@@ -72,12 +80,13 @@ class NpzDataset(Dataset):
             newconf = np.ones(padded_shape)*self.pad_config_nodes_val
             newconf[:,npz_data["node_config_ids"],:] = npz_data["node_config_feat"]
             npz_data["node_config_feat"] = newconf
+
+        npz_data['config_runtime'] = npz_data['config_runtime']/1e6
         if self.normalize_runtime:
-            npz_data['config_runtime'] = npz_data['config_runtime']/ 1e7
-            # mmin,mmax = npz_data['config_runtime'].min(),npz_data['config_runtime'].max()
-            # if mmin==mmax:
-            #     mmin=0
-            # npz_data['config_runtime'] = (npz_data['config_runtime']-mmin)/(mmax-mmin)
+            mmin,mmax = npz_data['config_runtime'].min(),npz_data['config_runtime'].max()
+            if mmin==mmax:
+                mmin=0
+            npz_data['config_runtime'] = (npz_data['config_runtime']-mmin)/(mmax-mmin)
         node_feats = npz_data["node_feat"]
         if self.normalize:
             node_feats = self._apply_normalizer(node_feats, *self.node_feat_norms, axis=1)
@@ -106,11 +115,14 @@ class NpzDataset(Dataset):
         return data_dict
 
 class GraphCollator:
-    def __init__(self,max_configs=10,configs_padding=0,runtime_padding=-1,provide_pair_matrix=False):
+    def __init__(self,max_configs=10,configs_padding=0,runtime_padding=-1,mask_invalid_value=-1,provide_pair_matrix=False,streaming_processor=False):
         self.max_configs = max_configs
         self.configs_padding = configs_padding
         self.runtime_padding = runtime_padding
         self.provide_pair_matrix = provide_pair_matrix
+        self.streaming_processor = streaming_processor
+        self.mask_invalid_value = mask_invalid_value
+        
     def _process_node_config_features(self, config_features):
         # Trim or pad the "configs" dimension
         if config_features.shape[0] > self.max_configs:
@@ -146,47 +158,50 @@ class GraphCollator:
         F[T_ext1 < T_ext2] = 0
 
         mask1 = (T_ext1 == self.runtime_padding).expand_as(F)
-        F[mask1] = -1
+        F[mask1] = self.mask_invalid_value
 
         # Setting diagonal to -1
         for i in range(configs):
-            F[:, i, i] = -1
+            F[:, i, i] = self.mask_invalid_value
 
         return F
     def calculate_pair_gt_tensor(self,T):
-        batch_size, configs = T.shape
 
         # Extend dimensions of T for broadcasting
         T_ext1 = T.unsqueeze(-1)   # shape becomes [batch_size, configs, 1]
         T_ext2 = T.unsqueeze(-2)   # shape becomes [batch_size, 1, configs]
 
         # Compute F according to the given formula
-        F = 1 + T_ext1 - T_ext2
+        F = T_ext1 - T_ext2
 
         # Masking conditions
-        mask_invalid = (T_ext1 == self.runtime_padding) | (T_ext2 == -1)
+        mask_invalid = (T_ext1 == self.runtime_padding) | (T_ext2 == self.runtime_padding)
 
-        F[mask_invalid] = -1
-
+        F[mask_invalid] = self.mask_invalid_value
+        for i in range(F.shape[0]):
+            F[i].fill_diagonal_(self.mask_invalid_value)
         return F
 
     def __call__(self, batch):
         """
         batch: List of dictionaries. Each dictionary corresponds to data for a single graph.
         """
-        
         # Node features
         node_feats = []
+        node_conf_feats = []
+
         edges = []
         nodeops = []
         batch_no=[]
         for i,item in enumerate(batch):
-            pad_trim_conf = self._process_node_config_features(item["node_config_features"])
-            for ptc in pad_trim_conf:
-                node_feats.append(torch.cat([item["node_features"],ptc], dim=1))
-                edges.append(item["edges"])
-                nodeops.append(item["node_ops"])
-                batch_no.append(i)
+            if not self.streaming_processor:
+                pad_trim_conf = self._process_node_config_features(item["node_config_features"])
+                for ptc in pad_trim_conf:
+                    node_feats.append(item["node_features"])
+                    node_conf_feats.append(ptc)
+                    edges.append(item["edges"])
+                    nodeops.append(item["node_ops"])
+                    batch_no.append(i)
         # Edges
         node_separation = torch.cumsum(torch.tensor([f.shape[0] for f in node_feats]), dim=0)
         cum_node_counts = torch.cat([torch.tensor([0]), node_separation[:-1]])  # cumulative node counts
@@ -203,6 +218,7 @@ class GraphCollator:
             optimization_matrix = torch.tensor([0])
         return {
             "node_features": torch.cat(node_feats,dim=0).float(),
+            "node_config_features": torch.cat(node_conf_feats,dim=0).float(),
             "node_separation": node_separation.long(),
             "node_ops": torch.cat(nodeops, dim=0).long(),
             "edges": edges.permute(1,0).long(),

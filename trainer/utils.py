@@ -31,6 +31,8 @@ class MetricsStore:
         return df
 
     def get_metrics_by_epoch(self, epoch):
+        if len(self.metrics)==0:
+            return {}
         epoch_metrics = {}
         for k, v in self.metrics.items():
             e, key = k.split('-')
@@ -38,7 +40,15 @@ class MetricsStore:
             if e == epoch:
                 epoch_metrics[key] = v
         return epoch_metrics
-
+    
+    def get_last_n_metric(self, metric_name, n=1):
+        epochs_for_metric = [int(k.split('-')[0]) for k, v in self.metrics.items() if k.split('-')[1] == metric_name]
+        sorted_epochs = sorted(epochs_for_metric, reverse=True)
+        if n==-1:
+            n = len(sorted_epochs)
+        last_n_values = [self.metrics[self.get_store_key(e, metric_name)] for e in sorted_epochs[:n]]
+        
+        return last_n_values
 
 def setup_logger(logfile):
     # Initialize logger

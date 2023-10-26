@@ -4,6 +4,7 @@ import torch
 from tqdm import tqdm
 import os
 import numpy as np
+from allrank.models.losses import listMLE,lambdaLoss
 
 def ordered_pair_accuracy(y_true, y_pred):
     assert y_true.shape == y_pred.shape, "Shapes of ground truth and prediction must be the same"
@@ -35,13 +36,19 @@ class ModelValidationCallback:
         self._savemodel(current_step,os.path.join(self.model.OUTPUTDIR,"latest_model.pkl"))
         truths = []
         predictions = []
+        loss = 0
+        batch_count = 0
         for batch in tqdm(self.valid_loader,desc=f"Valid step: {current_step}"):
             generated_tokens = self.model.infer(batch)
+            loss += listMLE(generated_tokens,batch["config_runtimes"]).item()
+            batch_count +=1
             truths.append(batch["config_runtimes"])
             predictions.append(generated_tokens)
 
         opa = ordered_pair_accuracy(torch.concat(truths,0),torch.concat(predictions,0)).item()
         self.metrics(current_step,"ordered_pair_accuracy",opa)
+        self.metrics(current_step,"valid_loss",loss/batch_count)
+
 
         if opa>=self.opa:
             print(f"saving best model. opa improved from {self.opa} to {opa}")
