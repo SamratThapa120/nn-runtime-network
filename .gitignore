@@ -6,5 +6,6 @@ cache
 notebooks/*
 *.ipynb
 !notebooks/create_symlink_splits.ipynb
+!notebooks/debug_template.ipynb
 *.db
 NOTES

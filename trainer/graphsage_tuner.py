@@ -66,7 +66,7 @@ if __name__ == "__main__":
         trail.set_user_attr("unique_name", UID+tune_id)
         hiddim = trail.suggest_categorical("dimensions",[0,1,2])
         opcode_dim, graphsage_in = dimensions[hiddim]
-        graphsage_layers = trail.suggest_int("graphsage_layers",2,3)
+        graphsage_layers = trail.suggest_int("graphsage_layers",2,4)
         graphsage_dropout= trail.suggest_int("graphsage_dropout",0,1)
         final_dropout = trail.suggest_int("final_dropout",0,1)
         graphsage_project = trail.suggest_categorical("graphsage_project",[True,False])
