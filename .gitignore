@@ -4,6 +4,7 @@ cache
 **/__pycache__/
 **/ipynb_checkpoints/
 notebooks/*
+*.ipynb
 !notebooks/create_symlink_splits.ipynb
 *.db
 NOTES

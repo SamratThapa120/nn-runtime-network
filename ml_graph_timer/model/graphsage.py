@@ -59,16 +59,19 @@ class GraphModelArugments:
 
     final_dropout: float = 0.1
     embedding_dropout: float = 0.1
-    attention_blocks: int = 4
+    attention_blocks: int = 0
 
     drop_rate: float = 0.1
     attention_dropout: float = 0.1
-    num_heads: int = 4
+    num_heads: int = 0
 
     is_pair_modeling: bool = False
     project_after_graph_encoder: bool = False 
     graphsage_aggr: str = "mean"
+    graphsage_normalize: bool = True
+    graphsage_project: bool = False
     return_positive_values: bool = False
+
 class LayoutGraphModel(torch.nn.Module):
     def __init__(self,arguments: GraphModelArugments):
         super().__init__()
@@ -78,7 +81,8 @@ class LayoutGraphModel(torch.nn.Module):
                                        hidden_channels=arguments.graphsage_hidden,
                                        num_layers=arguments.graphsage_layers,
                                        dropout=arguments.graphsage_dropout,
-                                       normalize=True,
+                                       normalize=arguments.graphsage_normalize,
+                                       project = arguments.graphsage_project,
                                        aggr=arguments.graphsage_aggr,
                                        )
         self.node_features_mlp = torch.nn.Sequential(

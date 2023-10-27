@@ -72,13 +72,25 @@ class Trainer:
             self.train_context = nullcontext()
         self.accum_steps = self.GRADIENT_STEPS
         self.target_key = "optimization_matrix" if self.IS_PAIR_TRAINING else "config_runtimes"
+    
+    def continue_training(self,tolerance=5):
+        trainlosses = self.metrics.get_metric_all("training_loss")
+        opa = self.metrics.get_metric_all("ordered_pair_accuracy")
+        if min(trainlosses) not in trainlosses[-tolerance:]:
+            return False
+        if max(opa) not in opa[-tolerance:]:
+            return False
+        if len(opa)>tolerance and max(opa)<0.58:
+            return False
+        return True
     #@profile
     def train_one_epoch(self,epoch,early_stop=False,tolerance=5):
+        continue_training=True
         self.model.train()
         total_loss = 0.0
         num_batches = 0
         tqdm_loader = tqdm(self.train_loader,desc=f"Train epoch: {epoch}",disable=self.rank!=0)
-        updatefreq=1
+        updatefreq=5
 
         self.optimizer.zero_grad()
         for i,batch in enumerate(tqdm_loader):
@@ -103,29 +115,24 @@ class Trainer:
             if i%updatefreq==0:
                 if torch.isnan(loss):
                     print("Found nan loss")
-                    exit()
+                    continue_training=False
                 tqdm_loader.set_description(f"loss: {loss.item():.4f} ")
             num_batches += 1
             self.current_step+=1
             if self.current_step%self.VALIDATION_FREQUENCY==0:
                 self.optimizer.zero_grad()
-                if self.DISTRIBUTED:
-                    dist.barrier()
                 if self.rank == 0:
                     self.validate(self.current_step)
                     self.logger.info(f"###Iter: {self.current_step}  ::  {self.metrics.get_metrics_by_epoch(self.current_step)}")
+                    if early_stop==True:
+                        continue_training = self.continue_training(tolerance=tolerance)
                 if self.DISTRIBUTED:
                     dist.barrier()
-                if early_stop==True:
-                    trainlosses = self.metrics.get_last_n_metric("training_loss",-1)
-                    opa = self.metrics.get_last_n_metric("ordered_pair_accuracy",-1)
-                    if( min(trainlosses) not in trainlosses[-tolerance:] ) or ( min(opa) not in opa[-tolerance:]):
-                        return False
         if self.rank == 0:            
             avg_loss = total_loss / num_batches
             self.metrics(self.current_step,"training_loss",avg_loss)
             self.logger.info(f"###Iter: {self.current_step}  ::  {self.metrics.get_metrics_by_epoch(self.current_step)}")
-        return True
+        return continue_training
     def validate(self,current_step):
         if self.rank != 0 or current_step%self.VALIDATION_FREQUENCY!=0:
             return
@@ -157,17 +164,33 @@ class Trainer:
             'model_state_dict': self.get_state_dict(),
         }, path)
 
-    def train(self):
+    def train(self,prune_epochs=5):
         if self.rank==0:
             print("Starting training....")
         for epoch in range(self.start_epoch,self.EPOCHS):
-            if self.DISTRIBUTED:
-                self.train_sampler.set_epoch(epoch)
-            self.train_one_epoch(epoch)
-            self._savemodel(self.current_step,os.path.join(self.OUTPUTDIR,"latest_model.pkl"))
+            self.train_sampler.set_epoch(epoch)
+            dist.barrier()
+                
+            continue_train = self.train_one_epoch(epoch,early_stop=True,tolerance=prune_epochs)
+            if self.rank == 0:
+                self._savemodel(self.current_step,os.path.join(self.OUTPUTDIR,"latest_model.pkl"))
+                if not continue_train :
+                    should_continue = torch.tensor(0.0).cuda()
+                else:
+                    should_continue = torch.tensor(1.0).cuda()
+            else:
+                should_continue = torch.tensor(1.0).cuda()
+
+            dist.all_reduce(should_continue, op=dist.ReduceOp.MIN)
+            dist.barrier()
+            if should_continue.item() == 0:
+                print(f"Early stopping RANK: {self.rank} ..... ")
+                return self.evaluation_callback.opa if self.rank==0 else -1
+
         if self.rank==0:
             self.metrics.to_dataframe().to_csv(os.path.join(self.OUTPUTDIR,"metrics.csv"))
-    
+        
+        return self.evaluation_callback.opa if self.rank==0 else -1
     
     def tune(self,prune_epochs=5):
 
@@ -176,7 +199,7 @@ class Trainer:
         for epoch in range(self.start_epoch,self.EPOCHS):
             if self.DISTRIBUTED:
                 self.train_sampler.set_epoch(epoch)
-            continue_train = self.train_one_epoch(epoch,early_stop=True,prune_epochs=prune_epochs)
+            continue_train = self.train_one_epoch(epoch,early_stop=True,tolerance=prune_epochs)
             if not continue_train:
                 return self.evaluation_callback.opa
-        return self.evaluation_callback.opa
+        return self.evaluation_callback.opa if self.rank==0 else -1
