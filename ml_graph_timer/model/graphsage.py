@@ -1,5 +1,5 @@
 import torch
-from torch_geometric.nn.models import GraphSAGE
+from torch_geometric.nn.models import GraphSAGE,GAT
 import torch.nn.functional as F
 from dataclasses import dataclass
 import torch.nn as nn
@@ -72,19 +72,34 @@ class GraphModelArugments:
     graphsage_project: bool = False
     return_positive_values: bool = False
 
+    model_type: str = "gsage"
+
+
 class LayoutGraphModel(torch.nn.Module):
     def __init__(self,arguments: GraphModelArugments):
         super().__init__()
         self.arguments = arguments
         self.opcode_embeddings = torch.nn.Embedding(arguments.num_opcodes,arguments.opcode_dim)
-        self.graph_encoder = GraphSAGE(in_channels=arguments.graphsage_in,
-                                       hidden_channels=arguments.graphsage_hidden,
-                                       num_layers=arguments.graphsage_layers,
-                                       dropout=arguments.graphsage_dropout,
-                                       normalize=arguments.graphsage_normalize,
-                                       project = arguments.graphsage_project,
-                                       aggr=arguments.graphsage_aggr,
-                                       )
+        if arguments.graphsage_layers<1:
+            self.graph_encoder=None
+        elif arguments.model_type=="gsage" :
+            self.graph_encoder = GraphSAGE(in_channels=arguments.graphsage_in,
+                                        hidden_channels=arguments.graphsage_hidden,
+                                        num_layers=arguments.graphsage_layers,
+                                        dropout=arguments.graphsage_dropout,
+                                        normalize=arguments.graphsage_normalize,
+                                        project = arguments.graphsage_project,
+                                        aggr=arguments.graphsage_aggr,
+                                        )
+        elif arguments.model_type=="gat":
+            self.graph_encoder = GAT(in_channels=arguments.graphsage_in,
+                                        hidden_channels=arguments.graphsage_hidden,
+                                        num_layers=arguments.graphsage_layers,
+                                        dropout=arguments.graphsage_dropout,
+                                        normalize=arguments.graphsage_normalize,
+                                        project = arguments.graphsage_project,
+                                        aggr=arguments.graphsage_aggr,
+                                        )
         self.node_features_mlp = torch.nn.Sequential(
             torch.nn.Linear(arguments.node_feature_dim,arguments.node_feature_dim*arguments.node_feature_expand),
             torch.nn.Dropout(arguments.node_feature_dropout),
@@ -114,7 +129,8 @@ class LayoutGraphModel(torch.nn.Module):
         node_features = torch.concat([node_features,node_config_features],dim=1)
         x = torch.cat([node_features,opcode_embed],dim=1)
         x = self.node_features_mlp(x)
-        x = self.graph_encoder(x,edges)
+        if self.graph_encoder is not None:
+            x = self.graph_encoder(x,edges)
         if self.arguments.project_after_graph_encoder:
             # aggregated = self.aggregation_norm(aggregated)
             x = self.final_classifier(x)

@@ -60,9 +60,14 @@ class Trainer:
         os.makedirs(self.OUTPUTDIR,exist_ok=True)
         self.logger = setup_logger(os.path.join(self.OUTPUTDIR,"logs.txt"))
         self.metrics = MetricsStore()
-
+    
         if self.rank==0:
-            self.valid_loader = DataLoader(self.valid_dataset,collate_fn=collate_func, batch_size=self.VALIDATION_BS, pin_memory=self.PIN_MEMORY, num_workers=self.NUM_WORKERS_VAL)
+            if hasattr(self,"dataloder_collate_val"):
+                print("Using valid collate function..")
+                collate_func_val= self.dataloder_collate_val
+            else:
+                collate_func_val= collate_func
+            self.valid_loader = DataLoader(self.valid_dataset,collate_fn=collate_func_val, batch_size=self.VALIDATION_BS, pin_memory=self.PIN_MEMORY, num_workers=self.NUM_WORKERS_VAL,shuffle=False)
             self.evaluation_callback = ModelValidationCallback(self,self.metrics,self.valid_loader)
             with open(os.path.join(self.OUTPUTDIR,'configs.json'), 'w') as file:
                 json.dump(all_configs, file, indent=4)
@@ -76,8 +81,8 @@ class Trainer:
     def continue_training(self,tolerance=5):
         trainlosses = self.metrics.get_metric_all("training_loss")
         opa = self.metrics.get_metric_all("ordered_pair_accuracy")
-        if min(trainlosses) not in trainlosses[-tolerance:]:
-            return False
+        # if min(trainlosses) not in trainlosses[-tolerance:]:
+        #     return False
         if max(opa) not in opa[-tolerance:]:
             return False
         if len(opa)>tolerance and max(opa)<0.58:
@@ -106,7 +111,7 @@ class Trainer:
                 loss = self.criterion(outputs, batch[self.target_key].to(self.device))/self.accum_steps
                 loss.backward()
                 if ((i + 1) % self.accum_steps == 0):
-                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.CLIP_NORM)
+                    # torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.CLIP_NORM)
                     self.optimizer.step()
                     self.optimizer.zero_grad()
                 if self.scheduler is not None:
@@ -164,16 +169,16 @@ class Trainer:
             'model_state_dict': self.get_state_dict(),
         }, path)
 
-    def train(self,prune_epochs=5):
+    def train(self,prune_epochs=10):
         if self.rank==0:
             print("Starting training....")
         for epoch in range(self.start_epoch,self.EPOCHS):
             self.train_sampler.set_epoch(epoch)
             dist.barrier()
-            try:
-                continue_train = self.train_one_epoch(epoch,early_stop=True,tolerance=prune_epochs)
-            except:
-                continue_train = False
+            # try:
+            continue_train = self.train_one_epoch(epoch,early_stop=True,tolerance=prune_epochs)
+            # except:
+                # continue_train = False
             if self.rank == 0:
                 self._savemodel(self.current_step,os.path.join(self.OUTPUTDIR,"latest_model.pkl"))
                 

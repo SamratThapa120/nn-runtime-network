@@ -1,1 +1,4 @@
 torch_geometric==2.4.0
+plotly==5.18.0
+optuna==3.4.0
+torchmetrics==1.2.0

@@ -13,7 +13,7 @@ import os
 from ml_graph_timer.model.graphsage import LayoutGraphModel,GraphModelArugments
 from ml_graph_timer.dataset.layout_dataset import NpzDataset,GraphCollator
 from ml_graph_timer.losses.losses import CustomMAELoss
-from allrank.models.losses import listMLE
+from allrank.models.losses import listMLE,listNet
 import shutil
 import time
 
@@ -61,6 +61,10 @@ if __name__ == "__main__":
         1: [256,512],
         2: [128,512],
     }
+    losses = {
+        "listnet": listNet,
+        "listmle": listMLE
+    }
     if rank==0:
         trail = study.ask()
         trail.set_user_attr("unique_name", UID+tune_id)
@@ -71,6 +75,8 @@ if __name__ == "__main__":
         final_dropout = trail.suggest_int("final_dropout",0,1)
         graphsage_project = trail.suggest_categorical("graphsage_project",[True,False])
         graphsage_aggr = trail.suggest_categorical("graphsage_aggr",["mean","max"])
+        # loss_type =losses[trail.suggest_categorical("loss_type",["listnet","listmle"])]
+
         LR = trail.suggest_float("LR",1e-5,1e-2)
         WD = trail.suggest_float("WD",1e-6,1e-4)
         project_after_graph_encoder = trail.suggest_categorical("project_after_graph_encoder",[True,False])
@@ -86,6 +92,8 @@ if __name__ == "__main__":
         final_dropout = trail.params["final_dropout"]
         graphsage_project = trail.params["graphsage_project"]
         graphsage_aggr = trail.params["graphsage_aggr"]
+        # loss_type = losses[trail.params["loss_type"]]
+
         LR = trail.params["LR"]
         WD = trail.params["WD"]
         project_after_graph_encoder = trail.params["project_after_graph_encoder"]
@@ -117,6 +125,7 @@ if __name__ == "__main__":
     base_obj.model = LayoutGraphModel(base_obj.model_dims)
     base_obj.LR = LR
     base_obj.WD = WD
+    # base_obj.criterion = loss_type
     base_obj.optimizer = torch.optim.Adam(base_obj.model.parameters(),lr=base_obj.LR,weight_decay=base_obj.WD)
     base_obj.EPOCHS = 50
     base_obj.scheduler = None
