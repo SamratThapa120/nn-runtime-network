@@ -9,7 +9,7 @@ from allrank.models.losses import listMLE
 from .base import Base
 
 class Configs(Base):
-    OUTPUTDIR="../workdir/listmle_graphsage_bestparams_layernorm"
+    OUTPUTDIR="../workdir/listmle_graphsage_bestparams_deeper"
 
     TRAIN_DATA_PATH="/app/dataset/various_splits/tuning_layout/train"
     VALID_DATA_PATH="/app/dataset/various_splits/all_layout/valid"
@@ -28,12 +28,11 @@ class Configs(Base):
     NUM_WORKERS_VAL=4
     DISTRIBUTED=True
 
-    LR=0.001
+    LR=0.0001
 
     EPOCHS=500
     MIN_CONFIGS=2
     SAMPLE_CONFIGS=16
-    SAMPLE_CONFIGS_VAL=256
     RUNTIME_PADDING=-1
     CONFIG_PADDING=0
     IS_PAIR_TRAINING=False
@@ -65,11 +64,12 @@ class Configs(Base):
             graphsage_aggr = "mean",
             return_positive_values = False,
             graphsage_project = False,
+            post_encoder_blocks=2
         )
         self.model = LayoutGraphModel(self.model_dims)
         
         self.train_dataset = NpzDataset(self.TRAIN_DATA_PATH,min_configs=self.MIN_CONFIGS, max_configs=self.SAMPLE_CONFIGS,normalizers=self.NORMALIZER_PATH,sample_num=self.USE_DATASET_LEN)
-        self.valid_dataset = NpzDataset(self.VALID_DATA_PATH,min_configs=self.MIN_CONFIGS, max_configs=self.SAMPLE_CONFIGS_VAL,normalizers=self.NORMALIZER_PATH,sample_num = self.USE_DATASET_LEN,random_config_sampling=False,isvalid=True)
+        self.valid_dataset = NpzDataset(self.VALID_DATA_PATH,min_configs=self.MIN_CONFIGS, max_configs=16,normalizers=self.NORMALIZER_PATH,sample_num = self.USE_DATASET_LEN,random_config_sampling=False,isvalid=True)
         self.test_dataset = NpzDataset(self.TEST_DATA_PATH,min_configs=self.MIN_CONFIGS, max_configs=-1,normalizers=self.NORMALIZER_PATH,sample_num = self.USE_DATASET_LEN,random_config_sampling=False,isvalid=True)
 
         print(f"length of train: {len(self.train_dataset)}, length of valid: {len(self.valid_dataset)}, length of test: {len(self.test_dataset)}")
@@ -86,6 +86,4 @@ class Configs(Base):
 
 
         self.dataloder_collate = GraphCollator(max_configs=self.SAMPLE_CONFIGS,configs_padding=self.CONFIG_PADDING,runtime_padding=self.RUNTIME_PADDING,provide_pair_matrix=self.IS_PAIR_TRAINING)
-        self.dataloder_collate_val = GraphCollator(max_configs=self.SAMPLE_CONFIGS_VAL,configs_padding=self.CONFIG_PADDING,runtime_padding=self.RUNTIME_PADDING,provide_pair_matrix=self.IS_PAIR_TRAINING)
-        
         self.stream_dataloder_collate = StreamingCollator(batch_size=2,max_configs=self.SAMPLE_CONFIGS,configs_padding=self.CONFIG_PADDING,runtime_padding=self.RUNTIME_PADDING,provide_pair_matrix=self.IS_PAIR_TRAINING)

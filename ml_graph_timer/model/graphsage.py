@@ -3,7 +3,40 @@ from torch_geometric.nn.models import GraphSAGE,GAT
 import torch.nn.functional as F
 from dataclasses import dataclass
 import torch.nn as nn
-    
+
+import torch
+import torch.nn as nn
+
+class GraphwiseLayerNorm(nn.Module):
+    def __init__(self, normalized_shape, eps=1e-5):
+        super().__init__()
+        self.eps = eps
+        self.weight = nn.Parameter(torch.ones(1,normalized_shape))
+        self.bias = nn.Parameter(torch.zeros(1,normalized_shape))
+        
+    def forward(self, x, node_separation):
+        start_idx = 0
+        normalized_batches = []
+        for ns in node_separation:
+            end_idx = start_idx + ns
+            batch = x[start_idx:end_idx]
+            
+            # Calculate mean and var for the batch
+            mean = batch.mean(dim=1, keepdim=True)
+            var = batch.var(dim=1, unbiased=False, keepdim=True)
+            
+            # Normalize the batch
+            batch = (batch - mean) / torch.sqrt(var + self.eps)
+            
+            # Apply learnable parameters
+            batch = batch * self.weight + self.bias
+            
+            normalized_batches.append(batch)
+            start_idx = end_idx
+
+        # Concatenate the normalized batches back into one tensor
+        return torch.cat(normalized_batches, dim=0)
+
 class L2NormalizationLayer(torch.nn.Module):
     def __init__(self, dim=1, eps=1e-12):
         super(L2NormalizationLayer, self).__init__()
@@ -43,7 +76,49 @@ class TransformerBlock(nn.Module):
         x = self.dropout2(x)
         x = x + attn_out
         return x
-    
+
+class ResidualBlock(nn.Module):
+    def __init__(self, input_dim, output_dim, expand_dim, dropout_rate):
+        super().__init__()
+        self.norm1 = GraphwiseLayerNorm(input_dim)
+        self.relu1 = nn.LeakyReLU(inplace=True)
+        self.expand_linear = nn.Linear(input_dim, expand_dim)
+        self.dropout1 = nn.Dropout(dropout_rate)
+        self.norm2 = GraphwiseLayerNorm(expand_dim)
+        self.relu2 = nn.LeakyReLU(inplace=True)
+        self.shrink_linear = nn.Linear(expand_dim, output_dim)
+        self.dropout2 = nn.Dropout(dropout_rate)
+        
+        # Projection layer for the residual connection if input and output dimensions are not the same
+        if input_dim != output_dim:
+            self.projection = nn.Linear(input_dim, output_dim)
+        else:
+            self.projection = None
+
+    def forward(self, x,node_separation):
+        # Save input for the residual connection
+        identity = x
+
+        # First half of the block
+        x = self.norm1(x,node_separation)
+        x = self.relu1(x)
+        x = self.expand_linear(x)
+        x = self.dropout1(x)
+
+        # Second half of the block
+        x = self.norm2(x,node_separation)
+        x = self.relu2(x)
+        x = self.shrink_linear(x)
+        x = self.dropout2(x)
+
+        # Apply projection if necessary
+        if self.projection is not None:
+            identity = self.projection(identity)
+
+        # Add the residual (identity)
+        x += identity
+        return x
+
 @dataclass
 class GraphModelArugments:
     num_opcodes: int = 120
@@ -73,8 +148,7 @@ class GraphModelArugments:
     return_positive_values: bool = False
 
     model_type: str = "gsage"
-
-
+    post_encoder_blocks: int = 0
 class LayoutGraphModel(torch.nn.Module):
     def __init__(self,arguments: GraphModelArugments):
         super().__init__()
@@ -100,14 +174,27 @@ class LayoutGraphModel(torch.nn.Module):
                                         project = arguments.graphsage_project,
                                         aggr=arguments.graphsage_aggr,
                                         )
-        self.node_features_mlp = torch.nn.Sequential(
+        self.node_features_mlp = torch.nn.ModuleList([
             torch.nn.Linear(arguments.node_feature_dim,arguments.node_feature_dim*arguments.node_feature_expand),
-            torch.nn.Dropout(arguments.node_feature_dropout),
-            torch.nn.ReLU(inplace=True),
+            torch.nn.LeakyReLU(inplace=True),
+            GraphwiseLayerNorm(arguments.node_feature_dim*arguments.node_feature_expand),
             torch.nn.Linear(arguments.node_feature_dim*arguments.node_feature_expand,arguments.graphsage_in),
-            L2NormalizationLayer(1)
-        )
-        
+            torch.nn.LeakyReLU(inplace=True),
+            GraphwiseLayerNorm(arguments.graphsage_in),
+        ])
+
+        self.post_encoder_mlp = nn.ModuleList()
+        input_dim = arguments.graphsage_in
+        for i in range(arguments.post_encoder_blocks):
+            block = ResidualBlock(
+                input_dim=input_dim,
+                output_dim=input_dim,
+                expand_dim=input_dim * arguments.node_feature_expand,
+                dropout_rate=arguments.node_feature_dropout
+            )
+            self.post_encoder_mlp.append(block)
+            # Since the output dim of the block 
+
         if arguments.attention_blocks>0:
             self.attention_module = torch.nn.Sequential(
                 *[
@@ -117,8 +204,6 @@ class LayoutGraphModel(torch.nn.Module):
         else:
             self.attention_module = None
         self.embed_drop = torch.nn.Dropout(arguments.embedding_dropout)
-        # self.aggregation_norm = torch.nn.LayerNorm(arguments.graphsage_hidden)
-        # self.norm_l = L2NormalizationLayer(2)
         self.final_classifier = torch.nn.Sequential(
             torch.nn.Dropout(arguments.final_dropout),
             torch.nn.Linear(arguments.graphsage_hidden,1)
@@ -126,13 +211,21 @@ class LayoutGraphModel(torch.nn.Module):
 
     def forward(self,node_features, node_config_features, node_separation, node_ops, edges, batches,*args,**kwargs):
         opcode_embed = self.embed_drop(self.opcode_embeddings(node_ops))
-        node_features = torch.concat([node_features,node_config_features],dim=1)
-        x = torch.cat([node_features,opcode_embed],dim=1)
-        x = self.node_features_mlp(x)
+        x = torch.cat([node_features,node_config_features,opcode_embed],dim=1)
+
+        for layer in self.node_features_mlp:
+            if isinstance(layer,GraphwiseLayerNorm):
+                x = layer(x,node_separation)
+            else:
+                x = layer(x)
+
         if self.graph_encoder is not None:
             x = self.graph_encoder(x,edges)
+
+        for block in self.post_encoder_mlp:
+            x = block(x,node_separation)
+
         if self.arguments.project_after_graph_encoder:
-            # aggregated = self.aggregation_norm(aggregated)
             x = self.final_classifier(x)
             if self.arguments.return_positive_values:
                 x = x.abs()
@@ -143,14 +236,11 @@ class LayoutGraphModel(torch.nn.Module):
             aggregated[b].append(torch.sum(x[start_idx:end_idx], dim=0))
             start_idx = end_idx
         aggregated = torch.stack([torch.stack(x) for x in aggregated])
-        # if self.attention_module is not None:
-        #     aggregated = self.attention_module(aggregated)
         
         # if self.arguments.is_pair_modeling:
         #     aggregated = self.norm_l(aggregated)
         #     return 1+torch.bmm(aggregated,aggregated.transpose(1,2))   # This is like calculating the cosine between two vectors. We add 1 to make the value in range [0,2]
         if not self.arguments.project_after_graph_encoder:
-            # aggregated = self.aggregation_norm(aggregated)
             aggregated = self.final_classifier(aggregated)
             if self.arguments.return_positive_values:
                 aggregated = aggregated.abs()

@@ -61,7 +61,7 @@ class ModelValidationCallback:
         predictions = []
         
         
-        modeltype = [f.split("/")[-1].split("___valid")[0] for f in self.valid_loader.dataset.files]
+        modeltype = self.valid_loader.dataset.model_types
         loss = 0
         batch_count = 0
         for batch in tqdm(self.valid_loader, desc=f"Valid step: {current_step}"):

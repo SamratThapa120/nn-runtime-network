@@ -7,13 +7,15 @@ from ml_graph_timer.losses.losses import CustomMAELoss,CustomMSELoss
 from allrank.models.losses import listMLE
 
 from .base import Base
+import numpy as np
 
 class Configs(Base):
-    OUTPUTDIR="../workdir/listmle_graphsage_bestparams_layernorm"
+    OUTPUTDIR="../workdir/listmle_graphsage_nlp"
 
-    TRAIN_DATA_PATH="/app/dataset/various_splits/tuning_layout/train"
-    VALID_DATA_PATH="/app/dataset/various_splits/all_layout/valid"
-    TEST_DATA_PATH="/app/dataset/various_splits/all_layout/test"
+    TRAIN_DATA_PATH="/app/dataset/various_splits/nlp_only/train"
+    VALID_DATA_PATH="/app/dataset/various_splits/nlp_only/valid"
+    TEST_DATA_PATH="/app/dataset/various_splits/nlp_only/test"
+    
     NORMALIZER_PATH="/app/dataset/various_splits/all_layout/normalizers.npy"
 
     OPTUNA_TUNING_DB="sqlite:///study.db"
@@ -33,7 +35,7 @@ class Configs(Base):
     EPOCHS=500
     MIN_CONFIGS=2
     SAMPLE_CONFIGS=16
-    SAMPLE_CONFIGS_VAL=256
+    SAMPLE_CONFIGS_VAL=16
     RUNTIME_PADDING=-1
     CONFIG_PADDING=0
     IS_PAIR_TRAINING=False
@@ -70,6 +72,8 @@ class Configs(Base):
         
         self.train_dataset = NpzDataset(self.TRAIN_DATA_PATH,min_configs=self.MIN_CONFIGS, max_configs=self.SAMPLE_CONFIGS,normalizers=self.NORMALIZER_PATH,sample_num=self.USE_DATASET_LEN)
         self.valid_dataset = NpzDataset(self.VALID_DATA_PATH,min_configs=self.MIN_CONFIGS, max_configs=self.SAMPLE_CONFIGS_VAL,normalizers=self.NORMALIZER_PATH,sample_num = self.USE_DATASET_LEN,random_config_sampling=False,isvalid=True)
+        self.valid_dataset.model_types = ["__".join(z.split("/")[-4:-2]) for z in self.valid_dataset.files]
+        print("Valid model types:",np.unique(self.valid_dataset.model_types))
         self.test_dataset = NpzDataset(self.TEST_DATA_PATH,min_configs=self.MIN_CONFIGS, max_configs=-1,normalizers=self.NORMALIZER_PATH,sample_num = self.USE_DATASET_LEN,random_config_sampling=False,isvalid=True)
 
         print(f"length of train: {len(self.train_dataset)}, length of valid: {len(self.valid_dataset)}, length of test: {len(self.test_dataset)}")

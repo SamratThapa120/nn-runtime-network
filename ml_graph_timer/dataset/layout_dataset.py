@@ -11,9 +11,11 @@ class NpzDataset(Dataset):
                  max_configs=-1, normalizers=None,pad_config_nodes=True,
                  pad_config_nodes_val=-1,normalize_runtime=False,
                  random_config_sampling=True,sample_num=None,
-                 isvalid=False,normalizer=None,is_tile=False):
+                 isvalid=False,normalizer=None,is_tile=False,transforms=None):
+        self.transforms = transforms
         self.isvalid = isvalid
         self.files = glob.glob(os.path.join(files, "*.npz"))
+        self.model_types = [f.split("/")[-1].split("___valid")[0] for f in self.files]
         if sample_num:
             self.files = np.random.choice(self.files,min(len(self.files),sample_num))
         self.min_configs = min_configs
@@ -70,6 +72,8 @@ class NpzDataset(Dataset):
             npz_data['node_config_feat'] =  np.stack([npz_data["config_feat"]]*len(npz_data["node_feat"]),axis=1)
             npz_data['node_config_ids'] =  np.arange(len(npz_data["node_feat"]))
 
+        if self.transforms:
+            npz_data = self.transforms(npz_data)
         num_configs = npz_data['config_runtime'].shape[0]
 
         if num_configs < self.min_configs:
@@ -80,10 +84,8 @@ class NpzDataset(Dataset):
                 sorted_times = np.argsort(npz_data['config_runtime'])
                 indices = np.linspace(0, len(sorted_times) - 1, self.max_configs, dtype=int)
                 keep_indices = sorted_times[indices]
-                np.random.shuffle(keep_indices)
             elif self.random_config_sampling:
                 keep_indices = np.random.choice(np.arange(len(npz_data['node_config_feat'])),min(self.max_configs,len(npz_data['node_config_feat'])))
-                np.random.shuffle(keep_indices)
             else:
                 npz_data['argsort_config_runtime'] = np.argsort(npz_data['config_runtime'])
                 third = self.max_configs // 3
@@ -94,6 +96,7 @@ class NpzDataset(Dataset):
                         npz_data['argsort_config_runtime'][third:-third],
                         self.max_configs - 2 * third)
                 ], axis=0)
+            np.random.shuffle(keep_indices)
             npz_data['node_config_feat'] = npz_data['node_config_feat'][keep_indices]
             npz_data['config_runtime'] = npz_data['config_runtime'][keep_indices]
         
@@ -263,7 +266,7 @@ class StreamingCollator(GraphCollator):
     def __call__(self, info):
         assert len(info)==1
         info = info[0]
-        COPY_KEYS = ['node_features','node_ops','edges','node_config_ids','node_splits','graph_id']
+        COPY_KEYS = ['node_features','node_ops','edges','node_config_ids','graph_id']
         total_configs = len(info["config_runtimes"])
 
         batches = []

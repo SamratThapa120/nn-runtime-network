@@ -95,7 +95,7 @@ class Trainer:
         total_loss = 0.0
         num_batches = 0
         tqdm_loader = tqdm(self.train_loader,desc=f"Train epoch: {epoch}",disable=self.rank!=0)
-        updatefreq=5
+        updatefreq=1
 
         self.optimizer.zero_grad()
         for i,batch in enumerate(tqdm_loader):
@@ -175,10 +175,10 @@ class Trainer:
         for epoch in range(self.start_epoch,self.EPOCHS):
             self.train_sampler.set_epoch(epoch)
             dist.barrier()
-            # try:
-            continue_train = self.train_one_epoch(epoch,early_stop=True,tolerance=prune_epochs)
-            # except:
-                # continue_train = False
+            try:
+                continue_train = self.train_one_epoch(epoch,early_stop=True,tolerance=prune_epochs)
+            except:
+                continue_train = False
             if self.rank == 0:
                 self._savemodel(self.current_step,os.path.join(self.OUTPUTDIR,"latest_model.pkl"))
                 

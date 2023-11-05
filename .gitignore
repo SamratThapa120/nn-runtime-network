@@ -7,5 +7,10 @@ notebooks/*
 *.ipynb
 !notebooks/create_symlink_splits.ipynb
 !notebooks/debug_template.ipynb
+!notebooks/make_test_predictions.ipynb
+!notebooks/EDA_features.ipynb
+!notebooks/EDA_torch.ipynb
+!notebooks/error_analysis.ipynb
+!notebooks/model_check.ipynb
 *.db
 NOTES
