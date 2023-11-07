@@ -9,12 +9,12 @@ from allrank.models.losses import listMLE
 from .base import Base
 
 class Configs(Base):
-    OUTPUTDIR="../workdir/listmle_graphsage_bestparams_layernorm"
+    OUTPUTDIR="../workdir/listmle_graphsage_bestparams"
 
-    TRAIN_DATA_PATH="/app/dataset/various_splits/tuning_layout/train"
+    TRAIN_DATA_PATH="/app/dataset/various_splits/all_layout/train"
     VALID_DATA_PATH="/app/dataset/various_splits/all_layout/valid"
     TEST_DATA_PATH="/app/dataset/various_splits/all_layout/test"
-    NORMALIZER_PATH="/app/dataset/various_splits/all_layout/normalizers.npy"
+    NORMALIZER_PATH="/app/dataset/various_splits/all_layout/normalizers/normalizers.npy"
 
     OPTUNA_TUNING_DB="sqlite:///study.db"
     OPTUNA_TUNING_TRAILS= 1000
@@ -33,7 +33,7 @@ class Configs(Base):
     EPOCHS=500
     MIN_CONFIGS=2
     SAMPLE_CONFIGS=16
-    SAMPLE_CONFIGS_VAL=256
+    SAMPLE_CONFIGS_VAL=16
     RUNTIME_PADDING=-1
     CONFIG_PADDING=0
     IS_PAIR_TRAINING=False

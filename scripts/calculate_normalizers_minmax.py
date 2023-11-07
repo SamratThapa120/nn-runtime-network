@@ -26,7 +26,7 @@ def calculate_and_save_normalizers(save_path):
         min_node_config_feat.append(info["node_config_feat"].min(0))
 
     # Save the TensorFlow tensors to the "normalizers" directory
-    np.save(normalizers_path,{
+    np.save(os.path.join(normalizers_path,"normalizers.npy"),{
         "max_node_feat": np.vstack(max_node_feat).max(0),
         "min_node_feat": np.vstack(min_node_feat).min(0),
         "max_node_config_feat": np.vstack(max_node_config_feat).max(0),

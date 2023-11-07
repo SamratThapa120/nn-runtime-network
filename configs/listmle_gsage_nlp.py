@@ -10,13 +10,12 @@ from .base import Base
 import numpy as np
 
 class Configs(Base):
-    OUTPUTDIR="../workdir/listmle_graphsage_nlp"
+    OUTPUTDIR="../workdir/listmle_graphsage_nlp1"
 
     TRAIN_DATA_PATH="/app/dataset/various_splits/nlp_only/train"
     VALID_DATA_PATH="/app/dataset/various_splits/nlp_only/valid"
     TEST_DATA_PATH="/app/dataset/various_splits/nlp_only/test"
-    
-    NORMALIZER_PATH="/app/dataset/various_splits/all_layout/normalizers.npy"
+    NORMALIZER_PATH="/app/dataset/various_splits/all_layout/normalizers/normalizers.npy"
 
     OPTUNA_TUNING_DB="sqlite:///study.db"
     OPTUNA_TUNING_TRAILS= 1000

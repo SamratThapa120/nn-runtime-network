@@ -28,11 +28,11 @@ class Configs(Base):
     NUM_WORKERS_VAL=4
     DISTRIBUTED=True
 
-    LR=0.0005
+    LR=0.0001
 
     EPOCHS=500
     MIN_CONFIGS=2
-    SAMPLE_CONFIGS=8
+    SAMPLE_CONFIGS=16
     SAMPLE_CONFIGS_VAL=16
     RUNTIME_PADDING=-1
     CONFIG_PADDING=0
@@ -56,7 +56,7 @@ class Configs(Base):
             node_feature_expand= 1,
             graphsage_in= 512,
             graphsage_hidden= 512,
-            graphsage_layers= 5,
+            graphsage_layers= 3,
             graphsage_dropout= 0.0,
             final_dropout= 0.0,
             embedding_dropout= 0.0,
