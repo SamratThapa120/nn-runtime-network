@@ -7,14 +7,15 @@ from ml_graph_timer.losses.losses import CustomMAELoss,CustomMSELoss
 from allrank.models.losses import listMLE
 
 from .base import Base
+import numpy as np
 
 class Configs(Base):
-    OUTPUTDIR="../workdir/listmle_graphsage_default"
+    OUTPUTDIR="../workdir/listmle_graphsage_nlp1"
 
-    TRAIN_DATA_PATH="/app/dataset/various_splits/all_default/train"
-    VALID_DATA_PATH="/app/dataset/various_splits/all_default/valid"
-    TEST_DATA_PATH="/app/dataset/various_splits/all_default/test"
-    NORMALIZER_PATH="/app/dataset/various_splits/all_layout/normalizers.npy"
+    TRAIN_DATA_PATH="/app/dataset/various_splits/nlp_only/train"
+    VALID_DATA_PATH="/app/dataset/various_splits/nlp_only/valid"
+    TEST_DATA_PATH="/app/dataset/various_splits/nlp_only/test"
+    NORMALIZER_PATH="/app/dataset/various_splits/all_layout/normalizers/normalizers.npy"
 
     OPTUNA_TUNING_DB="sqlite:///study.db"
     OPTUNA_TUNING_TRAILS= 1000
@@ -28,7 +29,7 @@ class Configs(Base):
     NUM_WORKERS_VAL=4
     DISTRIBUTED=True
 
-    LR=0.0001
+    LR=0.001
 
     EPOCHS=500
     MIN_CONFIGS=2
@@ -56,7 +57,7 @@ class Configs(Base):
             node_feature_expand= 1,
             graphsage_in= 512,
             graphsage_hidden= 512,
-            graphsage_layers= 3,
+            graphsage_layers= 2,
             graphsage_dropout= 0.0,
             final_dropout= 0.0,
             embedding_dropout= 0.0,
@@ -70,6 +71,8 @@ class Configs(Base):
         
         self.train_dataset = NpzDataset(self.TRAIN_DATA_PATH,min_configs=self.MIN_CONFIGS, max_configs=self.SAMPLE_CONFIGS,normalizers=self.NORMALIZER_PATH,sample_num=self.USE_DATASET_LEN)
         self.valid_dataset = NpzDataset(self.VALID_DATA_PATH,min_configs=self.MIN_CONFIGS, max_configs=self.SAMPLE_CONFIGS_VAL,normalizers=self.NORMALIZER_PATH,sample_num = self.USE_DATASET_LEN,random_config_sampling=False,isvalid=True)
+        self.valid_dataset.model_types = ["__".join(z.split("/")[-4:-2]) for z in self.valid_dataset.files]
+        print("Valid model types:",np.unique(self.valid_dataset.model_types))
         self.test_dataset = NpzDataset(self.TEST_DATA_PATH,min_configs=self.MIN_CONFIGS, max_configs=-1,normalizers=self.NORMALIZER_PATH,sample_num = self.USE_DATASET_LEN,random_config_sampling=False,isvalid=True)
 
         print(f"length of train: {len(self.train_dataset)}, length of valid: {len(self.valid_dataset)}, length of test: {len(self.test_dataset)}")

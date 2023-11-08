@@ -11,9 +11,9 @@ from .base import Base
 class Configs(Base):
     OUTPUTDIR="../workdir/listmle_graphsage_bestparams"
 
-    TRAIN_DATA_PATH="/app/dataset/various_splits/all_layout/train"
-    VALID_DATA_PATH="/app/dataset/various_splits/all_layout/valid"
-    TEST_DATA_PATH="/app/dataset/various_splits/all_layout/test"
+    TRAIN_DATA_PATH="/app/dataset/various_splits/all_layout_trimmed/train"
+    VALID_DATA_PATH="/app/dataset/various_splits/all_layout_trimmed/valid"
+    TEST_DATA_PATH="/app/dataset/various_splits/all_layout_trimmed/test"
     NORMALIZER_PATH="/app/dataset/various_splits/all_layout/normalizers/normalizers.npy"
 
     OPTUNA_TUNING_DB="sqlite:///study.db"

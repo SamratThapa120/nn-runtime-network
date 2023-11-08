@@ -9,11 +9,11 @@ from allrank.models.losses import listMLE
 from .base import Base
 
 class Configs(Base):
-    OUTPUTDIR="../workdir/listmle_graphsage_default"
+    OUTPUTDIR="../workdir/listmle_graphsage_bestparams_layernorm"
 
-    TRAIN_DATA_PATH="/app/dataset/various_splits/all_default/train"
-    VALID_DATA_PATH="/app/dataset/various_splits/all_default/valid"
-    TEST_DATA_PATH="/app/dataset/various_splits/all_default/test"
+    TRAIN_DATA_PATH="/app/dataset/various_splits/all_random/train"
+    VALID_DATA_PATH="/app/dataset/various_splits/all_random/valid"
+    TEST_DATA_PATH="/app/dataset/various_splits/all_random/test"
     NORMALIZER_PATH="/app/dataset/various_splits/all_layout/normalizers.npy"
 
     OPTUNA_TUNING_DB="sqlite:///study.db"
@@ -28,12 +28,12 @@ class Configs(Base):
     NUM_WORKERS_VAL=4
     DISTRIBUTED=True
 
-    LR=0.0001
+    LR=0.001
 
     EPOCHS=500
     MIN_CONFIGS=2
     SAMPLE_CONFIGS=16
-    SAMPLE_CONFIGS_VAL=16
+    SAMPLE_CONFIGS_VAL=256
     RUNTIME_PADDING=-1
     CONFIG_PADDING=0
     IS_PAIR_TRAINING=False
@@ -56,7 +56,7 @@ class Configs(Base):
             node_feature_expand= 1,
             graphsage_in= 512,
             graphsage_hidden= 512,
-            graphsage_layers= 3,
+            graphsage_layers= 2,
             graphsage_dropout= 0.0,
             final_dropout= 0.0,
             embedding_dropout= 0.0,

@@ -30,79 +30,79 @@ model.cuda()
 
 feature_conf_name = {int(i):v for i,v in json.load(open("/app/nn-runtime-network/assets/layout_config_feature.json")).items()}
 
-truths = []
-predictions = []
-with torch.no_grad():
-    for batch in dataloader:
-        out = model(batch["node_features"].cuda(), 
-                                batch["node_config_features"].cuda(),  
-                                batch["node_separation"].cuda(), 
-                                batch["node_ops"].cuda(), 
-                                batch["edges"].cuda(), 
-                                batch["batches"].cuda()
-                            ).detach().cpu()
-        truths.append(batch["config_runtimes"])
-        predictions.append(out)
-truths = torch.concat(truths, 0)
-predictions = torch.concat(predictions, 0)
-opa = ordered_pair_accuracy(truths, predictions,-1).item()
+# truths = []
+# predictions = []
+# with torch.no_grad():
+#     for batch in dataloader:
+#         out = model(batch["node_features"].cuda(), 
+#                                 batch["node_config_features"].cuda(),  
+#                                 batch["node_separation"].cuda(), 
+#                                 batch["node_ops"].cuda(), 
+#                                 batch["edges"].cuda(), 
+#                                 batch["batches"].cuda()
+#                             ).detach().cpu()
+#         truths.append(batch["config_runtimes"])
+#         predictions.append(out)
+# truths = torch.concat(truths, 0)
+# predictions = torch.concat(predictions, 0)
+# opa = ordered_pair_accuracy(truths, predictions,-1).item()
 
-print("original opa:",opa)
+# print("original opa:",opa)
 
-groups =[
-    (21,27),
-    (31,37),
-    (37,43),
-    (37,43),
-    (45,51),
-    (53,59),
-    (61,67),
-    (69,75),
-    (77,83),
-    (85,91),
-    (95,99),
-    (101,105),
-    (109,111),
-    (113,114),
-    (117,119),
-    (121,123),
-    (134,139),
-]
-opas = []
-names =[]
-for i,j in tqdm(groups):
-    if CFG.train_dataset.node_feat_norms[0][i:j].sum()==0:
-        print(f"skipping {i} to {j}")
-        continue
-    names.append(feature_vec_name[i])
-    i = CFG.train_dataset.node_feat_norms[0][:i].sum()
-    j = CFG.train_dataset.node_feat_norms[0][:j].sum()
+# groups =[
+#     (21,27),
+#     (31,37),
+#     (37,43),
+#     (37,43),
+#     (45,51),
+#     (53,59),
+#     (61,67),
+#     (69,75),
+#     (77,83),
+#     (85,91),
+#     (95,99),
+#     (101,105),
+#     (109,111),
+#     (113,114),
+#     (117,119),
+#     (121,123),
+#     (134,139),
+# ]
+# opas = []
+# names =[]
+# for i,j in tqdm(groups):
+#     if CFG.train_dataset.node_feat_norms[0][i:j].sum()==0:
+#         print(f"skipping {i} to {j}")
+#         continue
+#     names.append(feature_vec_name[i])
+#     i = CFG.train_dataset.node_feat_norms[0][:i].sum()
+#     j = CFG.train_dataset.node_feat_norms[0][:j].sum()
 
-    truths = []
-    predictions = []
-    with torch.no_grad():
-        for batch in dataloader:
-            batch["node_features"][:,i:j]= torch.rand(batch["node_features"][:, i:j].shape)
-            out = model(batch["node_features"].cuda(), 
-                                    batch["node_config_features"].cuda(),  
-                                    batch["node_separation"].cuda(), 
-                                    batch["node_ops"].cuda(), 
-                                    batch["edges"].cuda(), 
-                                    batch["batches"].cuda()
-                                ).detach().cpu()
-            truths.append(batch["config_runtimes"])
-            predictions.append(out)
-    truths = torch.concat(truths, 0)
-    predictions = torch.concat(predictions, 0)
-    opa = ordered_pair_accuracy(truths, predictions,-1).item()
-    opas.append(opa)
+#     truths = []
+#     predictions = []
+#     with torch.no_grad():
+#         for batch in dataloader:
+#             batch["node_features"][:,i:j]= torch.rand(batch["node_features"][:, i:j].shape)
+#             out = model(batch["node_features"].cuda(), 
+#                                     batch["node_config_features"].cuda(),  
+#                                     batch["node_separation"].cuda(), 
+#                                     batch["node_ops"].cuda(), 
+#                                     batch["edges"].cuda(), 
+#                                     batch["batches"].cuda()
+#                                 ).detach().cpu()
+#             truths.append(batch["config_runtimes"])
+#             predictions.append(out)
+#     truths = torch.concat(truths, 0)
+#     predictions = torch.concat(predictions, 0)
+#     opa = ordered_pair_accuracy(truths, predictions,-1).item()
+#     opas.append(opa)
 
 
-opas = {s:i for i,s in zip(opas,names)}
-filename = os.path.join(CFG.OUTPUTDIR,'node_importances_group.json')
+# opas = {s:i for i,s in zip(opas,names)}
+# filename = os.path.join(CFG.OUTPUTDIR,'node_importances_group.json')
 
-with open(filename, 'w') as f:
-    json.dump(opas, f, indent=4)
+# with open(filename, 'w') as f:
+#     json.dump(opas, f, indent=4)
 
 
     
@@ -125,7 +125,7 @@ for i,j in tqdm(groups):
     predictions = []
     with torch.no_grad():
         for batch in dataloader:
-            batch["node_config_features"][:,i:j]= 0
+            batch["node_config_features"][:,i:j]= torch.rand(batch["node_config_features"][:, i:j].shape)
             out = model(batch["node_features"].cuda(), 
                                     batch["node_config_features"].cuda(),  
                                     batch["node_separation"].cuda(), 
