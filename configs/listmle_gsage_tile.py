@@ -3,7 +3,7 @@ import torch
 import os 
 from ml_graph_timer.model.graphsage import LayoutGraphModel,GraphModelArugments
 from ml_graph_timer.dataset.layout_dataset import NpzDataset,GraphCollator,StreamingCollator
-from ml_graph_timer.dataset.transforms import AddFeatures,LogNormalization,RemoveFeatures,ComposeAll
+from ml_graph_timer.dataset.transforms import AddFeatures,LogNormalization,ComposeAll,RemoveFeatures,RemoveFeaturesTile
 
 from ml_graph_timer.losses.losses import CustomMAELoss,CustomMSELoss
 from allrank.models.losses import listMLE
@@ -11,20 +11,21 @@ from allrank.models.losses import listMLE
 from .base import Base
 
 class Configs(Base):
-    OUTPUTDIR="../workdir/listmle_graphsage_random_nlp"
+    OUTPUTDIR="../workdir/listmle_graphsage_tilemodel_updated"
 
-    TRAIN_DATA_PATH="/app/dataset/various_splits/nlp_random/train"
-    VALID_DATA_PATH="/app/dataset/various_splits/nlp_random/valid"
-    TEST_DATA_PATH="/app/dataset/various_splits/nlp_random/test"
-    # NORMALIZER_PATH="/app/dataset/various_splits/all_layout/normalizers/normalizers.npy"
+    TRAIN_DATA_PATH="/app/dataset/various_splits/all_tile/train"
+    VALID_DATA_PATH="/app/dataset/various_splits/all_tile/valid"
+    TEST_DATA_PATH="/app/dataset/various_splits/all_tile/test"
+    # NORMALIZER_PATH="/app/dataset/various_splits/all_tile/normalizers/normalizers.npy"
     NORMALIZER_PATH=None
+    
     OPTUNA_TUNING_DB="sqlite:///study.db"
     OPTUNA_TUNING_TRAILS= 1000
 
     USE_DATASET_LEN=None   #Set to small number while debugging
     SAMPLES_PER_GPU=1
     N_GPU=4
-    VALIDATION_BS=1
+    VALIDATION_BS=4
     PIN_MEMORY=True
     NUM_WORKERS=4
     NUM_WORKERS_VAL=4
@@ -32,20 +33,20 @@ class Configs(Base):
 
     LR=0.001
 
-    EPOCHS=1277
+    EPOCHS=500
     MIN_CONFIGS=2
-    SAMPLE_CONFIGS=8
-    SAMPLE_CONFIGS_VAL=64
+    SAMPLE_CONFIGS=64
+    SAMPLE_CONFIGS_VAL=512
     RUNTIME_PADDING=-1
     CONFIG_PADDING=0
     IS_PAIR_TRAINING=False
 
     AUTOCAST=False
     GRADIENT_STEPS=1
-    VALIDATION_FREQUENCY=6   # Number of epochs
+    VALIDATION_FREQUENCY=2   # Number of epochs
 
     CLIP_NORM=1e-2
-    WD=0.000023
+    WD=0.0
 
     PRUNING_TOLERANCE=10
     def __init__(self,inference_files=None,inference_text=None,use_numpy=False):
@@ -53,7 +54,7 @@ class Configs(Base):
         self.model_dims = GraphModelArugments(
             num_opcodes= 120,
             opcode_dim= 512,
-            node_feature_dim= 126+512,
+            node_feature_dim= 122+512,
             node_feature_dropout=0.0,
             node_feature_expand= 1,
             graphsage_in= 1024,
@@ -71,11 +72,11 @@ class Configs(Base):
         self.model = LayoutGraphModel(self.model_dims)
         self.transforms = ComposeAll([
             LogNormalization(),
-            RemoveFeatures(),
+            RemoveFeaturesTile()
         ])
-        self.train_dataset = NpzDataset(self.TRAIN_DATA_PATH,min_configs=self.MIN_CONFIGS, max_configs=self.SAMPLE_CONFIGS,normalizers=self.NORMALIZER_PATH,sample_num=self.USE_DATASET_LEN,transforms=self.transforms)
-        self.valid_dataset = NpzDataset(self.VALID_DATA_PATH,min_configs=self.MIN_CONFIGS, max_configs=self.SAMPLE_CONFIGS_VAL,normalizers=self.NORMALIZER_PATH,sample_num = self.USE_DATASET_LEN,random_config_sampling=False,isvalid=True,transforms=self.transforms)
-        self.test_dataset = NpzDataset(self.TEST_DATA_PATH,min_configs=self.MIN_CONFIGS, max_configs=-1,normalizers=self.NORMALIZER_PATH,sample_num = self.USE_DATASET_LEN,random_config_sampling=False,isvalid=True,transforms=self.transforms)
+        self.train_dataset = NpzDataset(self.TRAIN_DATA_PATH,min_configs=self.MIN_CONFIGS, max_configs=self.SAMPLE_CONFIGS,normalizers=self.NORMALIZER_PATH,sample_num=self.USE_DATASET_LEN,is_tile=True,transforms=self.transforms)
+        self.valid_dataset = NpzDataset(self.VALID_DATA_PATH,min_configs=self.MIN_CONFIGS, max_configs=self.SAMPLE_CONFIGS_VAL,normalizers=self.NORMALIZER_PATH,sample_num = self.USE_DATASET_LEN,random_config_sampling=False,isvalid=True,is_tile=True,transforms=self.transforms)
+        self.test_dataset = NpzDataset(self.TEST_DATA_PATH,min_configs=self.MIN_CONFIGS, max_configs=-1,normalizers=self.NORMALIZER_PATH,sample_num = self.USE_DATASET_LEN,random_config_sampling=False,isvalid=True,is_tile=True,transforms=self.transforms)
 
         print(f"length of train: {len(self.train_dataset)}, length of valid: {len(self.valid_dataset)}, length of test: {len(self.test_dataset)}")
 
@@ -86,11 +87,12 @@ class Configs(Base):
         self.scheduler = torch.optim.lr_scheduler.OneCycleLR(self.optimizer,max_lr=self.LR,steps_per_epoch=self.steps_per_epoch,epochs=self.EPOCHS,pct_start=0.1)
         # self.criterion = CustomMAELoss(padding=self.RUNTIME_PADDING)
         # self.criterion = CustomMSELoss(padding=self.RUNTIME_PADDING)
-    
-        self.criterion = listMLE
 
+        def modifiedMLE(y_pred, y_true):
+            return listMLE(y_pred, y_true,padded_value_indicator=-1)
+        self.criterion = modifiedMLE
 
-        self.dataloder_collate = GraphCollator(max_configs=self.SAMPLE_CONFIGS,configs_padding=self.CONFIG_PADDING,runtime_padding=self.RUNTIME_PADDING,provide_pair_matrix=self.IS_PAIR_TRAINING)
-        self.dataloder_collate_val = GraphCollator(max_configs=self.SAMPLE_CONFIGS_VAL,configs_padding=self.CONFIG_PADDING,runtime_padding=self.RUNTIME_PADDING,provide_pair_matrix=self.IS_PAIR_TRAINING)
-        
-        self.stream_dataloder_collate = StreamingCollator(batch_size=2,max_configs=self.SAMPLE_CONFIGS,configs_padding=self.CONFIG_PADDING,runtime_padding=self.RUNTIME_PADDING,provide_pair_matrix=self.IS_PAIR_TRAINING)
+        self.dataloder_collate = GraphCollator(max_configs=self.SAMPLE_CONFIGS,configs_padding=self.CONFIG_PADDING,runtime_padding=self.RUNTIME_PADDING,provide_pair_matrix=self.IS_PAIR_TRAINING,clip_max=True)
+        self.dataloder_collate_val = GraphCollator(max_configs=self.SAMPLE_CONFIGS,configs_padding=self.CONFIG_PADDING,runtime_padding=self.RUNTIME_PADDING,provide_pair_matrix=self.IS_PAIR_TRAINING,clip_max=False)
+     
+        self.stream_dataloder_collate = StreamingCollator(batch_size=8,max_configs=self.SAMPLE_CONFIGS,configs_padding=self.CONFIG_PADDING,runtime_padding=self.RUNTIME_PADDING,provide_pair_matrix=self.IS_PAIR_TRAINING)

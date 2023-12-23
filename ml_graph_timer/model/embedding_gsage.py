@@ -7,48 +7,8 @@ import torch.nn as nn
 import torch
 import torch.nn as nn
 
-from .sageconv import ResidualBlock,GraphwiseLayerNorm,PairNorm
-from .tabnet import TabNet
-
-class L2NormalizationLayer(torch.nn.Module):
-    def __init__(self, dim=1, eps=1e-12):
-        super(L2NormalizationLayer, self).__init__()
-        self.dim = dim
-        self.eps = eps
-
-    def forward(self, x):
-        return F.normalize(x, p=2, dim=self.dim, eps=self.eps)
-
-class Swish(nn.Module):
-    def forward(self, x):
-        return x * torch.sigmoid(x)
+from .sageconv import ResidualBlock,GraphwiseLayerNorm
     
-
-class TransformerBlock(nn.Module):
-    def __init__(self,dim=256, num_heads=4, expand=2, attn_dropout=0.1, drop_rate=0.1, activation=Swish()):
-        super().__init__()
-        self.norm1 = nn.LayerNorm(dim)
-        self.attn = nn.MultiheadAttention(dim, num_heads, dropout=attn_dropout,batch_first=True)
-        self.dropout1 = nn.Dropout(drop_rate)
-        self.norm2 = nn.LayerNorm(dim)
-        self.linear1 = nn.Linear(dim, dim*expand, bias=False)
-        self.linear2 = nn.Linear(dim*expand, dim, bias=False)
-        self.dropout2 = nn.Dropout(drop_rate)
-        self.activation = activation
-
-    def forward(self, inputs):
-        x = self.norm1(inputs)
-        x, _ = self.attn(x, x, x)
-        x = self.dropout1(x)
-        x = x + inputs
-        attn_out = x
-
-        x = self.norm2(x)
-        x = self.activation(self.linear1(x))
-        x = self.linear2(x)
-        x = self.dropout2(x)
-        x = x + attn_out
-        return x
 
 @dataclass
 class GraphModelArugments:
@@ -80,12 +40,31 @@ class GraphModelArugments:
 
     model_type: str = "gsage"
     post_encoder_blocks: int = 0
-    gst_drop: float =0.0
+
+    categorical_cols_nf: tuple = ()
+    embeddings_size_nf: tuple = ()
+    embeddings_dim_nf: tuple = ()
+
+
+    categorical_cols_cf: tuple = ()
+    embeddings_size_cf: tuple = ()
+    embeddings_dim_cf: tuple = ()
+
+
 class LayoutGraphModel(torch.nn.Module):
     def __init__(self,arguments: GraphModelArugments):
         super().__init__()
         self.arguments = arguments
         self.opcode_embeddings = torch.nn.Embedding(arguments.num_opcodes,arguments.opcode_dim)
+
+        self.categorical_embeddings_nf = nn.ModuleList()
+        for col,embsize,embdim in zip(arguments.categorical_cols_nf,arguments.embeddings_size_nf,arguments.embeddings_dim_nf):
+            self.categorical_embeddings_nf.append(torch.nn.Embedding(embsize,embdim))
+
+        self.categorical_embeddings_cf = nn.ModuleList()
+        for col,embsize,embdim in zip(arguments.categorical_cols_cf,arguments.embeddings_size_cf,arguments.embeddings_dim_cf):
+            self.categorical_embeddings_cf.append(torch.nn.Embedding(embsize,embdim))
+
         if arguments.graphsage_layers<1:
             self.graph_encoder=None
         elif arguments.model_type=="gsage" :
@@ -93,9 +72,7 @@ class LayoutGraphModel(torch.nn.Module):
                                         hidden_channels=arguments.graphsage_hidden,
                                         num_layers=arguments.graphsage_layers,
                                         dropout=arguments.graphsage_dropout,
-                                        normalize=False,
-                                        norm=PairNorm(),
-                                        act=nn.ReLU(),
+                                        normalize=arguments.graphsage_normalize,
                                         project = arguments.graphsage_project,
                                         aggr=arguments.graphsage_aggr,
                                         )
@@ -108,8 +85,6 @@ class LayoutGraphModel(torch.nn.Module):
                                         project = arguments.graphsage_project,
                                         aggr=arguments.graphsage_aggr,
                                         )
-        # self.node_features_mlp = TabNet(arguments.node_feature_dim,arguments.graphsage_in,n_d=arguments.graphsage_in//2,n_a=arguments.graphsage_in//2,
-        #                                 n_shared=2,n_steps=4)
         self.node_features_mlp = torch.nn.ModuleList([
             torch.nn.Linear(arguments.node_feature_dim,arguments.node_feature_dim*arguments.node_feature_expand),
             torch.nn.LeakyReLU(inplace=True),
@@ -118,37 +93,26 @@ class LayoutGraphModel(torch.nn.Module):
             torch.nn.LeakyReLU(inplace=True),
             GraphwiseLayerNorm(arguments.graphsage_in),
         ])
-
-        self.post_encoder_mlp = nn.ModuleList()
-        input_dim = arguments.graphsage_in
-        for i in range(arguments.post_encoder_blocks):
-            block = ResidualBlock(
-                input_dim=input_dim,
-                output_dim=input_dim,
-                expand_dim=input_dim * arguments.node_feature_expand,
-                dropout_rate=arguments.node_feature_dropout
-            )
-            self.post_encoder_mlp.append(block)
-            # Since the output dim of the block 
-
-        if arguments.attention_blocks>0:
-            self.attention_module = torch.nn.Sequential(
-                *[
-                    TransformerBlock(arguments.graphsage_hidden,arguments.num_heads,attn_dropout=arguments.attention_dropout,drop_rate=arguments.drop_rate) for _ in range(arguments.attention_blocks)
-                ]
-            )
-        else:
-            self.attention_module = None
         self.embed_drop = torch.nn.Dropout(arguments.embedding_dropout)
         self.final_classifier = torch.nn.Sequential(
             torch.nn.Dropout(arguments.final_dropout),
             torch.nn.Linear(arguments.graphsage_hidden,1)
         )
 
-    def forward(self,node_features, node_config_features, node_separation, node_ops, edges, batches, subgraphs=None,*args,**kwargs):
+    def forward(self,node_features, node_config_features, node_separation, node_ops, edges, batches,*args,**kwargs):
         opcode_embed = self.embed_drop(self.opcode_embeddings(node_ops))
-        x = torch.cat([node_features,node_config_features,opcode_embed],dim=1)
-        # x = self.node_features_mlp(x)[0]
+        categorical_embeddings_nf = []
+        for i, col in enumerate(self.arguments.categorical_cols_nf):
+            embedding = self.categorical_embeddings_nf[i](node_features[:, col].long())
+            categorical_embeddings_nf.append(embedding)
+        node_features = node_features[:,:-len(self.arguments.categorical_cols_nf)]
+        categorical_embeddings_cf = []
+        for i, col in enumerate(self.arguments.categorical_cols_cf):
+            embedding = self.categorical_embeddings_cf[i](node_config_features[:, col].long())
+            categorical_embeddings_cf.append(embedding)
+            
+        x = torch.cat([*categorical_embeddings_nf, *categorical_embeddings_cf, node_features, opcode_embed], dim=1)
+
         for layer in self.node_features_mlp:
             if isinstance(layer,GraphwiseLayerNorm):
                 x = layer(x,node_separation)
@@ -157,25 +121,11 @@ class LayoutGraphModel(torch.nn.Module):
 
         if self.graph_encoder is not None:
             x = self.graph_encoder(x,edges)
-        for block in self.post_encoder_mlp:
-            x = block(x,node_separation)
 
         if self.arguments.project_after_graph_encoder:
             x = self.final_classifier(x)
             if self.arguments.return_positive_values:
                 x = x.abs()
-        if (subgraphs is not None) and self.arguments.gst_drop>0:
-            with torch.no_grad():
-                unique_values = torch.unique(subgraphs)
-                # Calculate the number of values to drop
-                num_to_drop = int(len(unique_values) * self.arguments.gst_drop)
-
-                # Randomly select unique values to drop
-                values_to_drop = unique_values[torch.randperm(len(unique_values))[:num_to_drop]]
-
-                # Create a mask where values to drop are marked as False
-                mask = subgraphs.unsqueeze(1).eq(values_to_drop).any(1)
-            x[mask] = x[mask].detach()
         start_idx = 0
         aggregated = [[] for _ in torch.unique(batches)]
         for ns,b in zip(node_separation,batches):

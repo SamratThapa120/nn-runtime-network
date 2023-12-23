@@ -54,45 +54,22 @@ if __name__ == "__main__":
         rank=0
     print("RANK, TUNEID, MODULENAME : ",rank,tune_id,module_name)
 
-    study = optuna.create_study(direction="maximize", study_name='hptune_convtrans',storage="sqlite:///study_xla.db",load_if_exists=True)
+    study = optuna.create_study(direction="maximize", study_name='hptune_convtrans',storage="sqlite:///study_xla_default.db",load_if_exists=True)
     if rank==0:
         trail = study.ask()
         trail.set_user_attr("unique_name", UID+tune_id)
-        graphsage_layers = trail.suggest_int("graphsage_layers",1,6)
-        graphsage_dropout= trail.suggest_int("graphsage_dropout",0,1)
-        LR = trail.suggest_categorical("LR",[0.0001,0.0005,0.0001])
+        max_configs = trail.suggest_categorical("max_config",[4,8,16,32,64])
+        losstype= trail.suggest_categorical("losstype",["listnet","listmle"])
     dist.barrier()
     if rank!=0:
         time.sleep(5)
         trail = get_trial_by_name(study,  UID+tune_id)
-        graphsage_layers = trail.params["graphsage_layers"]
-        graphsage_dropout = trail.params["graphsage_dropout"]
-        LR = trail.params["LR"]
-        
+        max_configs = trail.params["max_config"]
+        losstype = trail.params["losstype"]
+    
     base_obj = module.Configs()
-    base_obj.model_dims = GraphModelArugments(
-        num_opcodes= 120,
-        opcode_dim= 128,
-        node_feature_dim= 126+128,
-        node_feature_dropout=0.0,
-        node_feature_expand= 1,
-        graphsage_in= 512,
-        graphsage_hidden= 512,
-        graphsage_layers= graphsage_layers,
-        graphsage_dropout= graphsage_dropout/10,
-        final_dropout= 0.0,
-        embedding_dropout= 0.0,
-        is_pair_modeling= False,
-        project_after_graph_encoder = True,
-        graphsage_aggr = "mean",
-        return_positive_values = False,
-        graphsage_project = False,
-    )
-    base_obj.model = LayoutGraphModel(base_obj.model_dims)
-    base_obj.LR = LR
-    # base_obj.criterion = loss_type
-    base_obj.optimizer = torch.optim.Adam(base_obj.model.parameters(),lr=base_obj.LR,weight_decay=base_obj.WD)
-    base_obj.scheduler = torch.optim.lr_scheduler.OneCycleLR(base_obj.optimizer,max_lr=base_obj.LR,steps_per_epoch=base_obj.steps_per_epoch,epochs=base_obj.EPOCHS,pct_start=0.1)
+    base_obj.train_dataset.max_configs = max_configs
+    base_obj.criterion = listMLE if losstype=="listmle" else listNet
     
     trainer = Trainer(base_obj)
 

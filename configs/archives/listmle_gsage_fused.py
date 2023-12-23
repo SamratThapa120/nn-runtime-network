@@ -2,20 +2,19 @@ import pandas as pd
 import torch
 import os 
 from ml_graph_timer.model.graphsage import LayoutGraphModel,GraphModelArugments
-from ml_graph_timer.dataset.layout_dataset import NpzDataset,GraphCollator,StreamingCollator
-from ml_graph_timer.dataset.transforms import AddFeatures,LogNormalization,RemoveFeatures,ComposeAll
-
+from ml_graph_timer.dataset.layout_dataset import NpzDataset,GraphCollator,StreamingCollator,RandomDefaultFusedNpzDataset
+from ml_graph_timer.dataset.transforms import AddFeatures,LogNormalization,ComposeAll,RemoveFeatures
 from ml_graph_timer.losses.losses import CustomMAELoss,CustomMSELoss
-from allrank.models.losses import listMLE
+from allrank.models.losses import listMLE,listNet,binary_listNet
 
 from .base import Base
 
 class Configs(Base):
-    OUTPUTDIR="../workdir/listmle_graphsage_default_nlp"
+    OUTPUTDIR="../workdir/listmle_graphsage_xlanlp_fused_histo"
 
-    TRAIN_DATA_PATH="/app/dataset/various_splits/nlp_default/train"
-    VALID_DATA_PATH="/app/dataset/various_splits/nlp_default/valid"
-    TEST_DATA_PATH="/app/dataset/various_splits/nlp_default/test"
+    TRAIN_DATA_PATH="/app/dataset/various_splits/xla_nlp_fused/train/*/"
+    VALID_DATA_PATH="/app/dataset/various_splits/xla_nlp_fused/valid"
+    TEST_DATA_PATH="/app/dataset/various_splits/xla_nlp_fused/test"
     # NORMALIZER_PATH="/app/dataset/various_splits/all_layout/normalizers/normalizers.npy"
     NORMALIZER_PATH=None
     OPTUNA_TUNING_DB="sqlite:///study.db"
@@ -24,7 +23,7 @@ class Configs(Base):
     USE_DATASET_LEN=None   #Set to small number while debugging
     SAMPLES_PER_GPU=2
     N_GPU=4
-    VALIDATION_BS=1
+    VALIDATION_BS=4
     PIN_MEMORY=True
     NUM_WORKERS=4
     NUM_WORKERS_VAL=4
@@ -32,22 +31,22 @@ class Configs(Base):
 
     LR=0.001
 
-    EPOCHS=1335
+    EPOCHS=1000
     MIN_CONFIGS=2
-    SAMPLE_CONFIGS=64
-    SAMPLE_CONFIGS_VAL=64
+    SAMPLE_CONFIGS=16
+    SAMPLE_CONFIGS_VAL=16
     RUNTIME_PADDING=-1
     CONFIG_PADDING=0
     IS_PAIR_TRAINING=False
 
     AUTOCAST=False
     GRADIENT_STEPS=1
-    VALIDATION_FREQUENCY=6   # Number of epochs
+    VALIDATION_FREQUENCY=4   # Number of epochs
 
     CLIP_NORM=1e-2
-    WD=2.3e-05
+    WD=0.000023
 
-    PRUNING_TOLERANCE=20
+    PRUNING_TOLERANCE=10
     def __init__(self,inference_files=None,inference_text=None,use_numpy=False):
         self.device = "cuda"
         self.model_dims = GraphModelArugments(
@@ -58,7 +57,7 @@ class Configs(Base):
             node_feature_expand= 1,
             graphsage_in= 512,
             graphsage_hidden= 512,
-            graphsage_layers= 3,
+            graphsage_layers= 2,
             graphsage_dropout= 0.0,
             final_dropout= 0.0,
             embedding_dropout= 0.0,
@@ -73,7 +72,7 @@ class Configs(Base):
             LogNormalization(),
             RemoveFeatures(),
         ])
-        self.train_dataset = NpzDataset(self.TRAIN_DATA_PATH,min_configs=self.MIN_CONFIGS, max_configs=self.SAMPLE_CONFIGS,normalizers=self.NORMALIZER_PATH,sample_num=self.USE_DATASET_LEN,transforms=self.transforms)
+        self.train_dataset = RandomDefaultFusedNpzDataset(self.TRAIN_DATA_PATH,min_configs=self.MIN_CONFIGS, max_configs=self.SAMPLE_CONFIGS,normalizers=self.NORMALIZER_PATH,sample_num=self.USE_DATASET_LEN,transforms=self.transforms,histogram_sampling=True)
         self.valid_dataset = NpzDataset(self.VALID_DATA_PATH,min_configs=self.MIN_CONFIGS, max_configs=self.SAMPLE_CONFIGS_VAL,normalizers=self.NORMALIZER_PATH,sample_num = self.USE_DATASET_LEN,random_config_sampling=False,isvalid=True,transforms=self.transforms)
         self.test_dataset = NpzDataset(self.TEST_DATA_PATH,min_configs=self.MIN_CONFIGS, max_configs=-1,normalizers=self.NORMALIZER_PATH,sample_num = self.USE_DATASET_LEN,random_config_sampling=False,isvalid=True,transforms=self.transforms)
 

@@ -1,9 +1,9 @@
 import pandas as pd
 import torch
 import os 
-from ml_graph_timer.model.graphsage import LayoutGraphModel,GraphModelArugments
+from ml_graph_timer.model.embedding_gsage import LayoutGraphModel,GraphModelArugments
 from ml_graph_timer.dataset.layout_dataset import NpzDataset,GraphCollator,StreamingCollator
-from ml_graph_timer.dataset.transforms import AddFeatures,LogNormalization,RemoveFeatures,ComposeAll
+from ml_graph_timer.dataset.transforms import AddFeatures,LogNormalization,RemoveFeatures,ComposeAll,CategorizeFilter
 
 from ml_graph_timer.losses.losses import CustomMAELoss,CustomMSELoss
 from allrank.models.losses import listMLE
@@ -11,7 +11,7 @@ from allrank.models.losses import listMLE
 from .base import Base
 
 class Configs(Base):
-    OUTPUTDIR="../workdir/listmle_graphsage_default_nlp"
+    OUTPUTDIR="../workdir/listmle_graphsage_default_nlp_embeddings_all"
 
     TRAIN_DATA_PATH="/app/dataset/various_splits/nlp_default/train"
     VALID_DATA_PATH="/app/dataset/various_splits/nlp_default/valid"
@@ -24,7 +24,7 @@ class Configs(Base):
     USE_DATASET_LEN=None   #Set to small number while debugging
     SAMPLES_PER_GPU=2
     N_GPU=4
-    VALIDATION_BS=1
+    VALIDATION_BS=4
     PIN_MEMORY=True
     NUM_WORKERS=4
     NUM_WORKERS_VAL=4
@@ -34,8 +34,8 @@ class Configs(Base):
 
     EPOCHS=1335
     MIN_CONFIGS=2
-    SAMPLE_CONFIGS=64
-    SAMPLE_CONFIGS_VAL=64
+    SAMPLE_CONFIGS=16
+    SAMPLE_CONFIGS_VAL=16
     RUNTIME_PADDING=-1
     CONFIG_PADDING=0
     IS_PAIR_TRAINING=False
@@ -45,20 +45,20 @@ class Configs(Base):
     VALIDATION_FREQUENCY=6   # Number of epochs
 
     CLIP_NORM=1e-2
-    WD=2.3e-05
+    WD=0.000023
 
-    PRUNING_TOLERANCE=20
+    PRUNING_TOLERANCE=10
     def __init__(self,inference_files=None,inference_text=None,use_numpy=False):
         self.device = "cuda"
         self.model_dims = GraphModelArugments(
             num_opcodes= 120,
             opcode_dim= 128,
-            node_feature_dim= 126+128,
+            node_feature_dim= 181+128,
             node_feature_dropout=0.0,
             node_feature_expand= 1,
             graphsage_in= 512,
             graphsage_hidden= 512,
-            graphsage_layers= 3,
+            graphsage_layers= 2,
             graphsage_dropout= 0.0,
             final_dropout= 0.0,
             embedding_dropout= 0.0,
@@ -67,15 +67,21 @@ class Configs(Base):
             graphsage_aggr = "mean",
             return_positive_values = False,
             graphsage_project = False,
+            categorical_cols_nf = (101,102),
+            embeddings_size_nf = (40,35),
+            embeddings_dim_nf = (16,16),
+            categorical_cols_cf = (0,1,2),
+            embeddings_size_cf = (126,137,17),
+            embeddings_dim_cf = (16,16,16)
         )
         self.model = LayoutGraphModel(self.model_dims)
         self.transforms = ComposeAll([
             LogNormalization(),
-            RemoveFeatures(),
+            CategorizeFilter()
         ])
-        self.train_dataset = NpzDataset(self.TRAIN_DATA_PATH,min_configs=self.MIN_CONFIGS, max_configs=self.SAMPLE_CONFIGS,normalizers=self.NORMALIZER_PATH,sample_num=self.USE_DATASET_LEN,transforms=self.transforms)
-        self.valid_dataset = NpzDataset(self.VALID_DATA_PATH,min_configs=self.MIN_CONFIGS, max_configs=self.SAMPLE_CONFIGS_VAL,normalizers=self.NORMALIZER_PATH,sample_num = self.USE_DATASET_LEN,random_config_sampling=False,isvalid=True,transforms=self.transforms)
-        self.test_dataset = NpzDataset(self.TEST_DATA_PATH,min_configs=self.MIN_CONFIGS, max_configs=-1,normalizers=self.NORMALIZER_PATH,sample_num = self.USE_DATASET_LEN,random_config_sampling=False,isvalid=True,transforms=self.transforms)
+        self.train_dataset = NpzDataset(self.TRAIN_DATA_PATH,min_configs=self.MIN_CONFIGS, max_configs=self.SAMPLE_CONFIGS,normalizers=self.NORMALIZER_PATH,sample_num=self.USE_DATASET_LEN,transforms=self.transforms,pad_config_nodes_val=self.CONFIG_PADDING)
+        self.valid_dataset = NpzDataset(self.VALID_DATA_PATH,min_configs=self.MIN_CONFIGS, max_configs=self.SAMPLE_CONFIGS_VAL,normalizers=self.NORMALIZER_PATH,sample_num = self.USE_DATASET_LEN,random_config_sampling=False,isvalid=True,transforms=self.transforms,pad_config_nodes_val=self.CONFIG_PADDING)
+        self.test_dataset = NpzDataset(self.TEST_DATA_PATH,min_configs=self.MIN_CONFIGS, max_configs=-1,normalizers=self.NORMALIZER_PATH,sample_num = self.USE_DATASET_LEN,random_config_sampling=False,isvalid=True,transforms=self.transforms,pad_config_nodes_val=self.CONFIG_PADDING)
 
         print(f"length of train: {len(self.train_dataset)}, length of valid: {len(self.valid_dataset)}, length of test: {len(self.test_dataset)}")
 

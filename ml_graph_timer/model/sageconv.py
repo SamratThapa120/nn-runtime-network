@@ -3,14 +3,149 @@ from typing import List, Optional, Tuple, Union
 import torch.nn.functional as F
 from torch import Tensor
 import torch
+import torch.nn as nn
 
 from torch_geometric.nn.aggr import Aggregation, MultiAggregation
 from torch_geometric.nn.conv import MessagePassing
 from torch_geometric.nn.dense.linear import Linear
 from torch_geometric.typing import Adj, OptPairTensor, Size, SparseTensor
 from torch_geometric.utils import spmm
+import inspect
+from typing import Any, Callable, Dict, Final, List, Optional, Tuple, Union
+from torch_geometric.nn.models.basic_gnn import BasicGNN
 
-class SAGEConv(MessagePassing):
+class GraphSAGE(BasicGNN):
+    supports_edge_weight: Final[bool] = False
+    supports_edge_attr: Final[bool] = False
+    supports_norm_batch: Final[bool]
+
+    def init_conv(self, in_channels: Union[int, Tuple[int, int]],
+                  out_channels: int, **kwargs) -> MessagePassing:
+        return SAGEConvExtended(in_channels, out_channels, **kwargs)
+
+class PairNorm(nn.Module):
+    def __init__(self, mode='PN-SI', scale=1):
+        """
+            mode:
+              'None' : No normalization 
+              'PN'   : Original version
+              'PN-SI'  : Scale-Individually version
+              'PN-SCS' : Scale-and-Center-Simultaneously version
+           
+            ('SCS'-mode is not in the paper but we found it works well in practice, 
+              especially for GCN and GAT.)
+
+            PairNorm is typically used after each graph convolution operation. 
+        """
+        assert mode in ['None', 'PN',  'PN-SI', 'PN-SCS']
+        super(PairNorm, self).__init__()
+        self.mode = mode
+        self.scale = scale
+
+        # Scale can be set based on origina data, and also the current feature lengths.
+        # We leave the experiments to future. A good pool we used for choosing scale:
+        # [0.1, 1, 10, 50, 100]
+                
+    def forward(self, x):
+        if self.mode == 'None':
+            return x
+        
+        col_mean = x.mean(dim=0)      
+        if self.mode == 'PN':
+            x = x - col_mean
+            rownorm_mean = (1e-6 + x.pow(2).sum(dim=1).mean()).sqrt() 
+            x = self.scale * x / rownorm_mean
+
+        if self.mode == 'PN-SI':
+            x = x - col_mean
+            rownorm_individual = (1e-6 + x.pow(2).sum(dim=1, keepdim=True)).sqrt()
+            x = self.scale * x / rownorm_individual
+
+        if self.mode == 'PN-SCS':
+            rownorm_individual = (1e-6 + x.pow(2).sum(dim=1, keepdim=True)).sqrt()
+            x = self.scale * x / rownorm_individual - col_mean
+
+        return x
+class LNormModule(nn.Module):
+    def __init__(self,L=2,eps=1e-5):
+        super().__init__()
+        self.L = L
+    def forward(self, x, node_separation=None):
+        return F.normalize(x, p=self.L, dim=-1)
+class GraphwiseLayerNorm(nn.Module):
+    def __init__(self, normalized_shape, eps=1e-5):
+        super().__init__()
+        self.eps = eps
+        self.weight = nn.Parameter(torch.ones(1,normalized_shape))
+        self.bias = nn.Parameter(torch.zeros(1,normalized_shape))
+        
+    def forward(self, x, node_separation):
+        start_idx = 0
+        normalized_batches = []
+        for ns in node_separation:
+            end_idx = start_idx + ns
+            batch = x[start_idx:end_idx]
+            
+            # Calculate mean and var for the batch
+            mean = batch.mean(dim=1, keepdim=True)
+            var = batch.var(dim=1, unbiased=False, keepdim=True)
+            
+            # Normalize the batch
+            batch = (batch - mean) / torch.sqrt(var + self.eps)
+            
+            # Apply learnable parameters
+            batch = batch * self.weight + self.bias
+            
+            normalized_batches.append(batch)
+            start_idx = end_idx
+
+        # Concatenate the normalized batches back into one tensor
+        return torch.cat(normalized_batches, dim=0)
+    
+class ResidualBlock(nn.Module):
+    def __init__(self, input_dim, output_dim, expand_dim=2, dropout_rate=0):
+        super().__init__()
+        self.norm1 = GraphwiseLayerNorm(input_dim)
+        self.relu1 = nn.LeakyReLU(inplace=True)
+        self.expand_linear = nn.Linear(input_dim, expand_dim)
+        self.dropout1 = nn.Dropout(dropout_rate)
+        self.norm2 = GraphwiseLayerNorm(expand_dim)
+        self.relu2 = nn.LeakyReLU(inplace=True)
+        self.shrink_linear = nn.Linear(expand_dim, output_dim)
+        self.dropout2 = nn.Dropout(dropout_rate)
+        
+        # Projection layer for the residual connection if input and output dimensions are not the same
+        if input_dim != output_dim:
+            self.projection = nn.Linear(input_dim, output_dim)
+        else:
+            self.projection = None
+
+    def forward(self, x,node_separation=None):
+        # Save input for the residual connection
+        identity = x
+
+        # First half of the block
+        x = self.norm1(x,node_separation)
+        x = self.relu1(x)
+        x = self.expand_linear(x)
+        x = self.dropout1(x)
+
+        # Second half of the block
+        x = self.norm2(x,node_separation)
+        x = self.relu2(x)
+        x = self.shrink_linear(x)
+        x = self.dropout2(x)
+
+        # Apply projection if necessary
+        if self.projection is not None:
+            identity = self.projection(identity)
+
+        # Add the residual (identity)
+        x += identity
+        return x
+    
+
+class SAGEConvExtended(MessagePassing):
     r"""The GraphSAGE operator from the `"Inductive Representation Learning on
     Large Graphs" <https://arxiv.org/abs/1706.02216>`_ paper
 
@@ -106,7 +241,7 @@ class SAGEConv(MessagePassing):
         self.lin_l = Linear(aggr_out_channels, out_channels, bias=bias)
         if self.root_weight:
             self.lin_r = Linear(in_channels[1], out_channels, bias=False)
-
+        self.encoder = ResidualBlock(out_channels,out_channels)
         self.reset_parameters()
 
     def reset_parameters(self):
@@ -129,9 +264,16 @@ class SAGEConv(MessagePassing):
         # propagate_type: (x: OptPairTensor)
         out = self.propagate(edge_index, x=x, size=size)
         out = self.lin_l(out)
+
         x_r = x[1]
         if self.root_weight and x_r is not None:
             out = out + self.lin_r(x_r)
+
+        out = self.encoder(out)
+
+        if self.normalize:
+            out = F.normalize(out, p=2., dim=-1)
+
         return out
 
     def message(self, x_j: Tensor) -> Tensor:

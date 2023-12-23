@@ -60,7 +60,6 @@ class Trainer:
         os.makedirs(self.OUTPUTDIR,exist_ok=True)
         self.logger = setup_logger(os.path.join(self.OUTPUTDIR,"logs.txt"))
         self.metrics = MetricsStore()
-    
         if self.rank==0:
             if hasattr(self,"dataloder_collate_val"):
                 print("Using valid collate function..")
@@ -79,7 +78,7 @@ class Trainer:
         self.target_key = "optimization_matrix" if self.IS_PAIR_TRAINING else "config_runtimes"
     
     def continue_training(self,tolerance=5):
-        trainlosses = self.metrics.get_metric_all("training_loss")
+        # trainlosses = self.metrics.get_metric_all("training_loss")
         opa = self.metrics.get_metric_all("ordered_pair_accuracy")
         # if min(trainlosses) not in trainlosses[-tolerance:]:
         #     return False
@@ -105,7 +104,7 @@ class Trainer:
                                      batch["node_separation"].to(self.device), 
                                      batch["node_ops"].to(self.device), 
                                      batch["edges"].to(self.device), 
-                                     batch["batches"].to(self.device)
+                                     batch["batches"].to(self.device),
                                      )
                 
                 loss = self.criterion(outputs, batch[self.target_key].to(self.device))/self.accum_steps
@@ -134,16 +133,21 @@ class Trainer:
                 if self.DISTRIBUTED:
                     dist.barrier()
         if self.rank == 0:            
-            avg_loss = total_loss / num_batches
+            avg_loss = total_loss / num_batches                
+            all_losses = self.metrics.get_metric_all("training_loss")
+            all_losses.append(10000)
+            if avg_loss<=min(all_losses):
+                self.validate(self.current_step)
             self.metrics(self.current_step,"training_loss",avg_loss)
             self.logger.info(f"###Iter: {self.current_step}  ::  {self.metrics.get_metrics_by_epoch(self.current_step)}")
         return continue_training
     def validate(self,current_step):
-        if self.rank != 0 or current_step%self.VALIDATION_FREQUENCY!=0:
+        if self.rank != 0:
             return
         self.model.eval()
         self.evaluation_callback(current_step)
-
+        self.model.train()
+        
     def infer(self, batch):
         with torch.no_grad():
             outputs = self.model(batch["node_features"].to(self.device), 
@@ -178,7 +182,7 @@ class Trainer:
             # try:
             continue_train = self.train_one_epoch(epoch,early_stop=True,tolerance=prune_epochs)
             # except:
-                # continue_train = False
+            #     continue_train = False
             if self.rank == 0:
                 self._savemodel(self.current_step,os.path.join(self.OUTPUTDIR,"latest_model.pkl"))
                 

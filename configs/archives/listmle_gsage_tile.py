@@ -3,19 +3,22 @@ import torch
 import os 
 from ml_graph_timer.model.graphsage import LayoutGraphModel,GraphModelArugments
 from ml_graph_timer.dataset.layout_dataset import NpzDataset,GraphCollator,StreamingCollator
+from ml_graph_timer.dataset.transforms import AddFeatures,LogNormalization,ComposeAll,RemoveFeatures,RemoveFeaturesTile
+
 from ml_graph_timer.losses.losses import CustomMAELoss,CustomMSELoss
 from allrank.models.losses import listMLE
 
 from .base import Base
 
 class Configs(Base):
-    OUTPUTDIR="../workdir/listmle_graphsage_tilemodel"
+    OUTPUTDIR="../workdir/listmle_graphsage_tilemodel_updated"
 
     TRAIN_DATA_PATH="/app/dataset/various_splits/all_tile/train"
     VALID_DATA_PATH="/app/dataset/various_splits/all_tile/valid"
     TEST_DATA_PATH="/app/dataset/various_splits/all_tile/test"
-    NORMALIZER_PATH="/app/dataset/various_splits/all_tile/normalizers/normalizers.npy"
-
+    # NORMALIZER_PATH="/app/dataset/various_splits/all_tile/normalizers/normalizers.npy"
+    NORMALIZER_PATH=None
+    
     OPTUNA_TUNING_DB="sqlite:///study.db"
     OPTUNA_TUNING_TRAILS= 1000
 
@@ -67,10 +70,13 @@ class Configs(Base):
             graphsage_project = False,
         )
         self.model = LayoutGraphModel(self.model_dims)
-        
-        self.train_dataset = NpzDataset(self.TRAIN_DATA_PATH,min_configs=self.MIN_CONFIGS, max_configs=self.SAMPLE_CONFIGS,normalizers=self.NORMALIZER_PATH,sample_num=self.USE_DATASET_LEN,is_tile=True)
-        self.valid_dataset = NpzDataset(self.VALID_DATA_PATH,min_configs=self.MIN_CONFIGS, max_configs=self.SAMPLE_CONFIGS_VAL,normalizers=self.NORMALIZER_PATH,sample_num = self.USE_DATASET_LEN,random_config_sampling=False,isvalid=True,is_tile=True)
-        self.test_dataset = NpzDataset(self.TEST_DATA_PATH,min_configs=self.MIN_CONFIGS, max_configs=-1,normalizers=self.NORMALIZER_PATH,sample_num = self.USE_DATASET_LEN,random_config_sampling=False,isvalid=True,is_tile=True)
+        self.transforms = ComposeAll([
+            LogNormalization(),
+            RemoveFeaturesTile()
+        ])
+        self.train_dataset = NpzDataset(self.TRAIN_DATA_PATH,min_configs=self.MIN_CONFIGS, max_configs=self.SAMPLE_CONFIGS,normalizers=self.NORMALIZER_PATH,sample_num=self.USE_DATASET_LEN,is_tile=True,transforms=self.transforms)
+        self.valid_dataset = NpzDataset(self.VALID_DATA_PATH,min_configs=self.MIN_CONFIGS, max_configs=self.SAMPLE_CONFIGS_VAL,normalizers=self.NORMALIZER_PATH,sample_num = self.USE_DATASET_LEN,random_config_sampling=False,isvalid=True,is_tile=True,transforms=self.transforms)
+        self.test_dataset = NpzDataset(self.TEST_DATA_PATH,min_configs=self.MIN_CONFIGS, max_configs=-1,normalizers=self.NORMALIZER_PATH,sample_num = self.USE_DATASET_LEN,random_config_sampling=False,isvalid=True,is_tile=True,transforms=self.transforms)
 
         print(f"length of train: {len(self.train_dataset)}, length of valid: {len(self.valid_dataset)}, length of test: {len(self.test_dataset)}")
 

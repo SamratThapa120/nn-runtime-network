@@ -1,5 +1,5 @@
 import torch 
-from allrank.models.losses import listMLE
+from allrank.models.losses import listMLE,rankNet
 
 
 def sine_between_vectors(u, v):
@@ -28,6 +28,27 @@ def compute_sine_matrix(tensor):
             
     return sine_matrix
 
+def pairwise_hinge_loss_batch(pred, true):
+    # pred: (batch_size, num_preds )
+    # true: (batch_size, num_preds)
+    batch_size = pred.shape[0]
+    num_preds = pred.shape[1]
+    i_idx = torch.arange(num_preds).repeat(num_preds)
+    j_idx = torch.arange(num_preds).repeat_interleave(num_preds)
+    pairwise_true = true[:,i_idx] > true[:,j_idx]
+    loss = torch.sum(torch.nn.functional.relu(0.1 - (pred[:,i_idx] - pred[:,j_idx])) * pairwise_true.float()) / batch_size
+    return loss
+
+def shuffledListMLE(preds,truth,*args,**kwargs):
+    b,s = truth.shape
+    truth = truth.view(-1)
+    preds = preds.view(-1)
+    perm_index = torch.randperm(b*s,device=truth.device)
+    # Shuffle both tensors using the same permutation index
+    truth = truth[perm_index].view(b,s)
+    preds = preds[perm_index].view(b,s)
+
+    return listMLE(preds,truth,*args,**kwargs)
 class CustomMAELoss:
     def __init__(self,padding=-1):
         self.padding = padding

@@ -2,19 +2,20 @@ import pandas as pd
 import torch
 import os 
 from ml_graph_timer.model.graphsage import LayoutGraphModel,GraphModelArugments
-from ml_graph_timer.dataset.layout_dataset import NpzDataset,GraphCollator,StreamingCollator
-from ml_graph_timer.dataset.transforms import AddFeatures,LogNormalization
+from ml_graph_timer.dataset.layout_dataset import NpzDataset,GraphCollator,StreamingCollator,CopyFeatureDataset
+from ml_graph_timer.dataset.transforms import AddFeatures,LogNormalization,RemoveFeatures,ComposeAll
+
 from ml_graph_timer.losses.losses import CustomMAELoss,CustomMSELoss
 from allrank.models.losses import listMLE
 
 from .base import Base
 
 class Configs(Base):
-    OUTPUTDIR="../workdir/listmle_graphsage_nlp"
+    OUTPUTDIR="../workdir/listmle_graphsage_default_nlp_copyop"
 
-    TRAIN_DATA_PATH="/app/dataset/various_splits/only_nlp/train"
-    VALID_DATA_PATH="/app/dataset/various_splits/only_nlp/valid"
-    TEST_DATA_PATH="/app/dataset/various_splits/only_nlp/test"
+    TRAIN_DATA_PATH="/app/dataset/various_splits/nlp_default/train"
+    VALID_DATA_PATH="/app/dataset/various_splits/nlp_default/valid"
+    TEST_DATA_PATH="/app/dataset/various_splits/nlp_default/test"
     # NORMALIZER_PATH="/app/dataset/various_splits/all_layout/normalizers/normalizers.npy"
     NORMALIZER_PATH=None
     OPTUNA_TUNING_DB="sqlite:///study.db"
@@ -31,7 +32,7 @@ class Configs(Base):
 
     LR=0.001
 
-    EPOCHS=500
+    EPOCHS=1335
     MIN_CONFIGS=2
     SAMPLE_CONFIGS=16
     SAMPLE_CONFIGS_VAL=16
@@ -41,7 +42,7 @@ class Configs(Base):
 
     AUTOCAST=False
     GRADIENT_STEPS=1
-    VALIDATION_FREQUENCY=4   # Number of epochs
+    VALIDATION_FREQUENCY=6   # Number of epochs
 
     CLIP_NORM=1e-2
     WD=0.000023
@@ -52,12 +53,12 @@ class Configs(Base):
         self.model_dims = GraphModelArugments(
             num_opcodes= 120,
             opcode_dim= 128,
-            node_feature_dim= 126+128,
+            node_feature_dim= 127+128,
             node_feature_dropout=0.0,
             node_feature_expand= 1,
             graphsage_in= 512,
             graphsage_hidden= 512,
-            graphsage_layers= 2,
+            graphsage_layers= 3,
             graphsage_dropout= 0.0,
             final_dropout= 0.0,
             embedding_dropout= 0.0,
@@ -68,10 +69,13 @@ class Configs(Base):
             graphsage_project = False,
         )
         self.model = LayoutGraphModel(self.model_dims)
-        
-        self.train_dataset = NpzDataset(self.TRAIN_DATA_PATH,min_configs=self.MIN_CONFIGS, max_configs=self.SAMPLE_CONFIGS,normalizers=self.NORMALIZER_PATH,sample_num=self.USE_DATASET_LEN,transforms=LogNormalization())
-        self.valid_dataset = NpzDataset(self.VALID_DATA_PATH,min_configs=self.MIN_CONFIGS, max_configs=self.SAMPLE_CONFIGS_VAL,normalizers=self.NORMALIZER_PATH,sample_num = self.USE_DATASET_LEN,random_config_sampling=False,isvalid=True,transforms=LogNormalization())
-        self.test_dataset = NpzDataset(self.TEST_DATA_PATH,min_configs=self.MIN_CONFIGS, max_configs=-1,normalizers=self.NORMALIZER_PATH,sample_num = self.USE_DATASET_LEN,random_config_sampling=False,isvalid=True,transforms=LogNormalization())
+        self.transforms = ComposeAll([
+            LogNormalization(),
+            RemoveFeatures(),
+        ])
+        self.train_dataset = CopyFeatureDataset(self.TRAIN_DATA_PATH,min_configs=self.MIN_CONFIGS, max_configs=self.SAMPLE_CONFIGS,normalizers=self.NORMALIZER_PATH,sample_num=self.USE_DATASET_LEN,transforms=self.transforms)
+        self.valid_dataset = CopyFeatureDataset(self.VALID_DATA_PATH,min_configs=self.MIN_CONFIGS, max_configs=self.SAMPLE_CONFIGS_VAL,normalizers=self.NORMALIZER_PATH,sample_num = self.USE_DATASET_LEN,random_config_sampling=False,isvalid=True,transforms=self.transforms)
+        self.test_dataset = CopyFeatureDataset(self.TEST_DATA_PATH,min_configs=self.MIN_CONFIGS, max_configs=-1,normalizers=self.NORMALIZER_PATH,sample_num = self.USE_DATASET_LEN,random_config_sampling=False,isvalid=True,transforms=self.transforms)
 
         print(f"length of train: {len(self.train_dataset)}, length of valid: {len(self.valid_dataset)}, length of test: {len(self.test_dataset)}")
 

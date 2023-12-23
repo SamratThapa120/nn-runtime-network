@@ -10,18 +10,18 @@ import json
 from tqdm import tqdm
 sys.path.append("../")
 from ml_graph_timer.dataset.layout_dataset import NpzDataset,GraphCollator
-from ml_graph_timer.dataset.transforms import RemoveFeatures
 
 from torch.utils.data import DataLoader
-from configs.listmle_gsage_xla_fused import Configs
-from ml_graph_timer.callbacks.evaluation import ordered_pair_accuracy
+from configs.listmle_gsage_fused import Configs
+from ml_graph_timer.callbacks.evaluation import ordered_pair_accuracy,kendalltau
 
 
 feature_vec_name = {int(i):v for i,v in json.load(open("/app/nn-runtime-network/assets/node_feature_vector.json")).items()}
 
 CFG = Configs()
-CFG.valid_dataset.files = CFG.valid_dataset.files[:7]
-dataloader = DataLoader(CFG.valid_dataset, batch_size=4, shuffle=False, collate_fn=CFG.dataloder_collate_val,num_workers=1,pin_memory=False)
+CFG.valid_dataset.max_configs = 1024
+CFG.valid_dataset.files = CFG.valid_dataset.files
+dataloader = DataLoader(CFG.valid_dataset, batch_size=1, shuffle=False, collate_fn=CFG.dataloder_collate_val,num_workers=4,pin_memory=False)
 
 CFG.load_state_dict(os.path.join(CFG.OUTPUTDIR,"bestmodel_opa.pkl"))
 model = CFG.model
@@ -33,6 +33,7 @@ feature_conf_name = {int(i):v for i,v in json.load(open("/app/nn-runtime-network
 
 truths = []
 predictions = []
+modeltype = CFG.valid_dataset.model_types
 with torch.no_grad():
     for batch in tqdm(dataloader):
         out = model(batch["node_features"].cuda(), 
@@ -47,8 +48,17 @@ with torch.no_grad():
 truths = torch.concat(truths, 0)
 predictions = torch.concat(predictions, 0)
 opa = ordered_pair_accuracy(truths, predictions,-1).item()
-
+ktau = kendalltau(truths.numpy(),predictions.numpy())
 print("original opa:",opa)
+print("original ktau:",ktau)
+# Calculating ordered_pair_accuracy for each unique modeltype
+for mt in np.unique(modeltype):
+    indices = [i for i,m in enumerate(modeltype) if m==mt]
+    opa_modeltype = ordered_pair_accuracy(truths[indices], predictions[indices],-1).item()
+    print(f"opa_{mt}:", opa_modeltype)
+
+    kt_modeltype = kendalltau(truths[indices].numpy(), predictions[indices].numpy(),-1).item()
+    print(f"ktau_{mt}", kt_modeltype)
 
 if len(sys.argv)<2 or sys.argv[1]!="1":
     exit(0)
@@ -72,17 +82,15 @@ groups =[
     (121,123),
     (134,139),
 ]
-remove_feat_transform = RemoveFeatures()
-has_node_feat = np.array([i in remove_feat_transform.keep_indices_nf for i in range(140)])
 opas = []
 names =[]
 for i,j in tqdm(groups):
-    if has_node_feat[i:j].sum()==0:
+    if CFG.train_dataset.node_feat_norms[0][i:j].sum()==0:
         print(f"skipping {i} to {j}")
         continue
     names.append(feature_vec_name[i])
-    i = has_node_feat[:i].sum()
-    j = has_node_feat[:j].sum()
+    i = CFG.train_dataset.node_feat_norms[0][:i].sum()
+    j = CFG.train_dataset.node_feat_norms[0][:j].sum()
 
     truths = []
     predictions = []
@@ -119,15 +127,13 @@ groups =[
 ]
 opas = []
 names =[]
-has_conf_feat = np.array([i in remove_feat_transform.keep_indices_cf for i in range(140)])
-
 for i,j in tqdm(groups):
-    if has_conf_feat[i:j].sum()==0:
+    if CFG.train_dataset.node_config_feat_norms[0][i:j].sum()==0:
         print(f"skipping {i} to {j}")
         continue
     names.append(feature_conf_name[i])
-    i = has_conf_feat[:i].sum()
-    j = has_conf_feat[:j].sum()
+    i = CFG.train_dataset.node_config_feat_norms[0][:i].sum()
+    j = CFG.train_dataset.node_config_feat_norms[0][:j].sum()
 
     truths = []
     predictions = []

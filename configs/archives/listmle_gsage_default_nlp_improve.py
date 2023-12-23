@@ -1,7 +1,7 @@
 import pandas as pd
 import torch
 import os 
-from ml_graph_timer.model.graphsage import LayoutGraphModel,GraphModelArugments
+from ml_graph_timer.model.graphsage_gst import LayoutGraphModel,GraphModelArugments
 from ml_graph_timer.dataset.layout_dataset import NpzDataset,GraphCollator,StreamingCollator
 from ml_graph_timer.dataset.transforms import AddFeatures,LogNormalization,RemoveFeatures,ComposeAll
 
@@ -11,7 +11,7 @@ from allrank.models.losses import listMLE
 from .base import Base
 
 class Configs(Base):
-    OUTPUTDIR="../workdir/listmle_graphsage_default_nlp"
+    OUTPUTDIR="../workdir/listmle_graphsage_default_nlp_larger"
 
     TRAIN_DATA_PATH="/app/dataset/various_splits/nlp_default/train"
     VALID_DATA_PATH="/app/dataset/various_splits/nlp_default/valid"
@@ -24,7 +24,7 @@ class Configs(Base):
     USE_DATASET_LEN=None   #Set to small number while debugging
     SAMPLES_PER_GPU=2
     N_GPU=4
-    VALIDATION_BS=1
+    VALIDATION_BS=4
     PIN_MEMORY=True
     NUM_WORKERS=4
     NUM_WORKERS_VAL=4
@@ -34,8 +34,8 @@ class Configs(Base):
 
     EPOCHS=1335
     MIN_CONFIGS=2
-    SAMPLE_CONFIGS=64
-    SAMPLE_CONFIGS_VAL=64
+    SAMPLE_CONFIGS=16
+    SAMPLE_CONFIGS_VAL=16
     RUNTIME_PADDING=-1
     CONFIG_PADDING=0
     IS_PAIR_TRAINING=False
@@ -45,7 +45,7 @@ class Configs(Base):
     VALIDATION_FREQUENCY=6   # Number of epochs
 
     CLIP_NORM=1e-2
-    WD=2.3e-05
+    WD=0.0
 
     PRUNING_TOLERANCE=20
     def __init__(self,inference_files=None,inference_text=None,use_numpy=False):
@@ -83,7 +83,7 @@ class Configs(Base):
         self.steps_per_epoch = len(self.train_dataset)//(self.SAMPLES_PER_GPU*self.N_GPU)+1
         self.VALIDATION_FREQUENCY  = self.VALIDATION_FREQUENCY * self.steps_per_epoch
         # self.scheduler = None
-        self.scheduler = torch.optim.lr_scheduler.OneCycleLR(self.optimizer,max_lr=self.LR,steps_per_epoch=self.steps_per_epoch,epochs=self.EPOCHS,pct_start=0.1)
+        self.scheduler = torch.optim.lr_scheduler.OneCycleLR(self.optimizer,max_lr=self.LR,steps_per_epoch=self.steps_per_epoch,epochs=self.EPOCHS,pct_start=0.3)
         # self.criterion = CustomMAELoss(padding=self.RUNTIME_PADDING)
         # self.criterion = CustomMSELoss(padding=self.RUNTIME_PADDING)
     

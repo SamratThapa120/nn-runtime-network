@@ -24,7 +24,7 @@ class Configs(Base):
     USE_DATASET_LEN=None   #Set to small number while debugging
     SAMPLES_PER_GPU=2
     N_GPU=4
-    VALIDATION_BS=1
+    VALIDATION_BS=4
     PIN_MEMORY=True
     NUM_WORKERS=4
     NUM_WORKERS_VAL=4
@@ -34,8 +34,8 @@ class Configs(Base):
 
     EPOCHS=1335
     MIN_CONFIGS=2
-    SAMPLE_CONFIGS=64
-    SAMPLE_CONFIGS_VAL=64
+    SAMPLE_CONFIGS=16
+    SAMPLE_CONFIGS_VAL=16
     RUNTIME_PADDING=-1
     CONFIG_PADDING=0
     IS_PAIR_TRAINING=False
@@ -45,9 +45,9 @@ class Configs(Base):
     VALIDATION_FREQUENCY=6   # Number of epochs
 
     CLIP_NORM=1e-2
-    WD=2.3e-05
+    WD=0.000023
 
-    PRUNING_TOLERANCE=20
+    PRUNING_TOLERANCE=10
     def __init__(self,inference_files=None,inference_text=None,use_numpy=False):
         self.device = "cuda"
         self.model_dims = GraphModelArugments(

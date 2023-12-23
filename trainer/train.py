@@ -16,7 +16,7 @@ if __name__ == "__main__":
     module = importlib.import_module(f"configs.{module_name}")
     base_obj = module.Configs()
     if base_obj.DISTRIBUTED:
-        dist.init_process_group(backend='nccl',timeout=datetime.timedelta(seconds=7200000))
+        dist.init_process_group(backend='nccl',timeout=datetime.timedelta(seconds=120),world_size=base_obj.N_GPU)
     from trainer.graphsage_trainer import Trainer
     trainer = Trainer(base_obj)
 

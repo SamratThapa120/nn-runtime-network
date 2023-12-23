@@ -3,19 +3,21 @@ import torch
 import os 
 from ml_graph_timer.model.graphsage import LayoutGraphModel,GraphModelArugments
 from ml_graph_timer.dataset.layout_dataset import NpzDataset,GraphCollator,StreamingCollator
+from ml_graph_timer.dataset.transforms import *
+
 from ml_graph_timer.losses.losses import CustomMAELoss,CustomMSELoss
 from allrank.models.losses import listMLE
 
 from .base import Base
 
 class Configs(Base):
-    OUTPUTDIR="../workdir/listmle_graphsage_bestparams_layernorm"
+    OUTPUTDIR="../workdir/listmle_graphsage_random_nlpxla2"
 
-    TRAIN_DATA_PATH="/app/dataset/various_splits/all_random/train"
-    VALID_DATA_PATH="/app/dataset/various_splits/all_random/valid"
-    TEST_DATA_PATH="/app/dataset/various_splits/all_random/test"
-    NORMALIZER_PATH="/app/dataset/various_splits/all_layout/normalizers.npy"
-
+    TRAIN_DATA_PATH="/app/dataset/various_splits/only_random/train"
+    VALID_DATA_PATH="/app/dataset/various_splits/all_layout/valid"
+    TEST_DATA_PATH="/app/dataset/various_splits/only_random/test"
+    # NORMALIZER_PATH="/app/dataset/various_splits/all_layout/normalizers/normalizers.npy"
+    NORMALIZER_PATH=None
     OPTUNA_TUNING_DB="sqlite:///study.db"
     OPTUNA_TUNING_TRAILS= 1000
 
@@ -30,22 +32,22 @@ class Configs(Base):
 
     LR=0.001
 
-    EPOCHS=500
+    EPOCHS=1000
     MIN_CONFIGS=2
     SAMPLE_CONFIGS=16
-    SAMPLE_CONFIGS_VAL=256
+    SAMPLE_CONFIGS_VAL=32
     RUNTIME_PADDING=-1
-    CONFIG_PADDING=0
+    CONFIG_PADDING=-10
     IS_PAIR_TRAINING=False
 
     AUTOCAST=False
     GRADIENT_STEPS=1
-    VALIDATION_FREQUENCY=2   # Number of epochs
+    VALIDATION_FREQUENCY=4   # Number of epochs
 
     CLIP_NORM=1e-2
     WD=0.000023
 
-    PRUNING_TOLERANCE=10
+    PRUNING_TOLERANCE=15
     def __init__(self,inference_files=None,inference_text=None,use_numpy=False):
         self.device = "cuda"
         self.model_dims = GraphModelArugments(
@@ -56,7 +58,7 @@ class Configs(Base):
             node_feature_expand= 1,
             graphsage_in= 512,
             graphsage_hidden= 512,
-            graphsage_layers= 2,
+            graphsage_layers= 3,
             graphsage_dropout= 0.0,
             final_dropout= 0.0,
             embedding_dropout= 0.0,
@@ -67,10 +69,15 @@ class Configs(Base):
             graphsage_project = False,
         )
         self.model = LayoutGraphModel(self.model_dims)
-        
-        self.train_dataset = NpzDataset(self.TRAIN_DATA_PATH,min_configs=self.MIN_CONFIGS, max_configs=self.SAMPLE_CONFIGS,normalizers=self.NORMALIZER_PATH,sample_num=self.USE_DATASET_LEN)
-        self.valid_dataset = NpzDataset(self.VALID_DATA_PATH,min_configs=self.MIN_CONFIGS, max_configs=self.SAMPLE_CONFIGS_VAL,normalizers=self.NORMALIZER_PATH,sample_num = self.USE_DATASET_LEN,random_config_sampling=False,isvalid=True)
-        self.test_dataset = NpzDataset(self.TEST_DATA_PATH,min_configs=self.MIN_CONFIGS, max_configs=-1,normalizers=self.NORMALIZER_PATH,sample_num = self.USE_DATASET_LEN,random_config_sampling=False,isvalid=True)
+        self.transforms = ComposeAll([
+            LogNormalization(),
+            # FixFeatureNoise(),
+            RemoveFeatures(),
+            # AmplifyCategorical()
+        ])
+        self.train_dataset = NpzDataset(self.TRAIN_DATA_PATH,min_configs=self.MIN_CONFIGS, max_configs=self.SAMPLE_CONFIGS,normalizers=self.NORMALIZER_PATH,sample_num=self.USE_DATASET_LEN,transforms=self.transforms,pad_config_nodes_val=self.CONFIG_PADDING)
+        self.valid_dataset = NpzDataset(self.VALID_DATA_PATH,min_configs=self.MIN_CONFIGS, max_configs=self.SAMPLE_CONFIGS_VAL,normalizers=self.NORMALIZER_PATH,sample_num = self.USE_DATASET_LEN,random_config_sampling=False,isvalid=True,transforms=self.transforms,pad_config_nodes_val=self.CONFIG_PADDING)
+        self.test_dataset = NpzDataset(self.TEST_DATA_PATH,min_configs=self.MIN_CONFIGS, max_configs=-1,normalizers=self.NORMALIZER_PATH,sample_num = self.USE_DATASET_LEN,random_config_sampling=False,isvalid=True,transforms=self.transforms,pad_config_nodes_val=self.CONFIG_PADDING)
 
         print(f"length of train: {len(self.train_dataset)}, length of valid: {len(self.valid_dataset)}, length of test: {len(self.test_dataset)}")
 
