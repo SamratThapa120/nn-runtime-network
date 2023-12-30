@@ -11,13 +11,12 @@ from allrank.models.losses import listMLE
 from .base import Base
 
 class Configs(Base):
-    OUTPUTDIR="../workdir/listmle_graphsage_default_nlp"
+    OUTPUTDIR="../workdir/listmle_graphsage_default_nlp_baseline"
 
     TRAIN_DATA_PATH="/app/dataset/various_splits/nlp_default/train"
     VALID_DATA_PATH="/app/dataset/various_splits/nlp_default/valid"
     TEST_DATA_PATH="/app/dataset/various_splits/nlp_default/test"
-    # NORMALIZER_PATH="/app/dataset/various_splits/all_layout/normalizers/normalizers.npy"
-    NORMALIZER_PATH=None
+    NORMALIZER_PATH="/app/dataset/various_splits/all_layout/normalizers/normalizers.npy"
     OPTUNA_TUNING_DB="sqlite:///study.db"
     OPTUNA_TUNING_TRAILS= 1000
 
@@ -69,10 +68,7 @@ class Configs(Base):
             graphsage_project = False,
         )
         self.model = LayoutGraphModel(self.model_dims)
-        self.transforms = ComposeAll([
-            LogNormalization(),
-            RemoveFeatures(),
-        ])
+        self.transforms = None
         self.train_dataset = NpzDataset(self.TRAIN_DATA_PATH,min_configs=self.MIN_CONFIGS, max_configs=self.SAMPLE_CONFIGS,normalizers=self.NORMALIZER_PATH,sample_num=self.USE_DATASET_LEN,transforms=self.transforms)
         self.valid_dataset = NpzDataset(self.VALID_DATA_PATH,min_configs=self.MIN_CONFIGS, max_configs=self.SAMPLE_CONFIGS_VAL,normalizers=self.NORMALIZER_PATH,sample_num = self.USE_DATASET_LEN,random_config_sampling=False,isvalid=True,transforms=self.transforms)
         self.test_dataset = NpzDataset(self.TEST_DATA_PATH,min_configs=self.MIN_CONFIGS, max_configs=-1,normalizers=self.NORMALIZER_PATH,sample_num = self.USE_DATASET_LEN,random_config_sampling=False,isvalid=True,transforms=self.transforms)

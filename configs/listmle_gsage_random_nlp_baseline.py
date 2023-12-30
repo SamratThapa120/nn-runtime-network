@@ -11,18 +11,17 @@ from allrank.models.losses import listMLE
 from .base import Base
 
 class Configs(Base):
-    OUTPUTDIR="../workdir/listmle_graphsage_default_nlp"
+    OUTPUTDIR="../workdir/listmle_graphsage_random_nlp_baseline"
 
-    TRAIN_DATA_PATH="/app/dataset/various_splits/nlp_default/train"
-    VALID_DATA_PATH="/app/dataset/various_splits/nlp_default/valid"
-    TEST_DATA_PATH="/app/dataset/various_splits/nlp_default/test"
-    # NORMALIZER_PATH="/app/dataset/various_splits/all_layout/normalizers/normalizers.npy"
-    NORMALIZER_PATH=None
+    TRAIN_DATA_PATH="/app/dataset/various_splits/nlp_random/train"
+    VALID_DATA_PATH="/app/dataset/various_splits/nlp_random/valid"
+    TEST_DATA_PATH="/app/dataset/various_splits/nlp_random/test"
+    NORMALIZER_PATH="/app/dataset/various_splits/all_layout/normalizers/normalizers.npy"
     OPTUNA_TUNING_DB="sqlite:///study.db"
     OPTUNA_TUNING_TRAILS= 1000
 
     USE_DATASET_LEN=None   #Set to small number while debugging
-    SAMPLES_PER_GPU=2
+    SAMPLES_PER_GPU=1
     N_GPU=4
     VALIDATION_BS=1
     PIN_MEMORY=True
@@ -32,7 +31,7 @@ class Configs(Base):
 
     LR=0.001
 
-    EPOCHS=1335
+    EPOCHS=1277
     MIN_CONFIGS=2
     SAMPLE_CONFIGS=8
     SAMPLE_CONFIGS_VAL=64
@@ -45,19 +44,19 @@ class Configs(Base):
     VALIDATION_FREQUENCY=6   # Number of epochs
 
     CLIP_NORM=1e-2
-    WD=2.3e-05
+    WD=0.000023
 
-    PRUNING_TOLERANCE=20
+    PRUNING_TOLERANCE=10
     def __init__(self,inference_files=None,inference_text=None,use_numpy=False):
         self.device = "cuda"
         self.model_dims = GraphModelArugments(
             num_opcodes= 120,
-            opcode_dim= 128,
-            node_feature_dim= 126+128,
+            opcode_dim= 512,
+            node_feature_dim= 126+512,
             node_feature_dropout=0.0,
             node_feature_expand= 1,
-            graphsage_in= 512,
-            graphsage_hidden= 512,
+            graphsage_in= 1024,
+            graphsage_hidden= 1024,
             graphsage_layers= 3,
             graphsage_dropout= 0.0,
             final_dropout= 0.0,
@@ -69,10 +68,7 @@ class Configs(Base):
             graphsage_project = False,
         )
         self.model = LayoutGraphModel(self.model_dims)
-        self.transforms = ComposeAll([
-            LogNormalization(),
-            RemoveFeatures(),
-        ])
+        self.transforms = None
         self.train_dataset = NpzDataset(self.TRAIN_DATA_PATH,min_configs=self.MIN_CONFIGS, max_configs=self.SAMPLE_CONFIGS,normalizers=self.NORMALIZER_PATH,sample_num=self.USE_DATASET_LEN,transforms=self.transforms)
         self.valid_dataset = NpzDataset(self.VALID_DATA_PATH,min_configs=self.MIN_CONFIGS, max_configs=self.SAMPLE_CONFIGS_VAL,normalizers=self.NORMALIZER_PATH,sample_num = self.USE_DATASET_LEN,random_config_sampling=False,isvalid=True,transforms=self.transforms)
         self.test_dataset = NpzDataset(self.TEST_DATA_PATH,min_configs=self.MIN_CONFIGS, max_configs=-1,normalizers=self.NORMALIZER_PATH,sample_num = self.USE_DATASET_LEN,random_config_sampling=False,isvalid=True,transforms=self.transforms)

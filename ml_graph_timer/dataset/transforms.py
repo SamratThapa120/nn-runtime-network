@@ -121,6 +121,36 @@ class CategorizeFilter:
         info["node_config_feat"] = np.concatenate(concats,2)
         return info
 
+class AggregateCategoricalFeats:
+    def __init__(self,mask_value=-1,negate_minor_major_layout=True):
+        self.nf_groups =[31,32,33,34,35,36,134,135,136,137,138,139]
+        self.cf_groups =[ 0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13]
+        self.keep_indices_nf= [  0,   3,   6,   7,  10,  13,  15,  18,  20,  21,  22,  23,  24,
+         25,  26,  27,  28,  29,  30, 37,38,  39,  40,  41,  43,  44,  45,  46,  47,  48,  49,  51,  52,
+         53,  54,  55,  59,  60,  61,  62,  63,  64,  67,  68,  69,  70,
+         71,  72,  73,  75,  76,  77,  78,  79,  80,  81,  83,  84,  85,
+         86,  87,  91,  92,  93,  94,  95,  96,  97,  99, 100, 101, 102,
+        103, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 117,
+        118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130,
+        131, 132, 133]
+        self.keep_indices_cf= [ 0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13]
+        self.mask_value = mask_value
+        self.negate_minor_major_layout = negate_minor_major_layout
+
+    def __call__(self, info):
+        # mask = info["node_feat"][:,21:27]<=0
+        # if self.negate_minor_major_layout:
+        #     info["node_feat"][:,134:][mask] = self.mask_value
+
+        concats = [info["node_feat"][:,self.keep_indices_nf]]
+        tmp = info["node_feat"][:,self.nf_groups]
+        concats.append(np.where(tmp==-1,6,tmp))
+        info["node_feat"] = np.concatenate(concats,1)
+
+        tmp=info["node_config_feat"][:,:,self.cf_groups]
+        info["node_config_feat"] = np.where(tmp==-1,6,tmp)
+        return info
+
 class RemoveFeaturesAfterFE:
     def __init__(self,):
         self.keep_indices_nf= [  0,   3,   6,   7,  10,  13,  15,  18,  20,  21,  22,  23,  24,

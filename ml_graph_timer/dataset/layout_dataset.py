@@ -67,7 +67,6 @@ def histogram_equalized_sampling(data, max_configs):
     return selected_indices     
 
 import networkx as nx
-import nxmetis
 
 def partition_graph(edges, nodes, max_nodes=1000):
     edge_list = [(int(edge[0]), int(edge[1])) for edge in edges.t().tolist()]

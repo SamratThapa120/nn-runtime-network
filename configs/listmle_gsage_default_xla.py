@@ -4,18 +4,17 @@ import os
 from ml_graph_timer.model.graphsage import LayoutGraphModel,GraphModelArugments
 from ml_graph_timer.dataset.layout_dataset import NpzDataset,GraphCollator,StreamingCollator
 from ml_graph_timer.dataset.transforms import AddFeatures,LogNormalization,RemoveFeatures,ComposeAll
-
 from ml_graph_timer.losses.losses import CustomMAELoss,CustomMSELoss
 from allrank.models.losses import listMLE
 
 from .base import Base
 
 class Configs(Base):
-    OUTPUTDIR="../workdir/listmle_graphsage_default_nlp"
+    OUTPUTDIR=f"../workdir/listmle_gsage_default_xla"
 
-    TRAIN_DATA_PATH="/app/dataset/various_splits/nlp_default/train"
-    VALID_DATA_PATH="/app/dataset/various_splits/nlp_default/valid"
-    TEST_DATA_PATH="/app/dataset/various_splits/nlp_default/test"
+    TRAIN_DATA_PATH="/app/dataset/various_splits/xla_default/train"
+    VALID_DATA_PATH="/app/dataset/various_splits/xla_default/valid"
+    TEST_DATA_PATH="/app/dataset/various_splits/xla_default/test"
     # NORMALIZER_PATH="/app/dataset/various_splits/all_layout/normalizers/normalizers.npy"
     NORMALIZER_PATH=None
     OPTUNA_TUNING_DB="sqlite:///study.db"
@@ -32,7 +31,7 @@ class Configs(Base):
 
     LR=0.001
 
-    EPOCHS=1335
+    EPOCHS=4007
     MIN_CONFIGS=2
     SAMPLE_CONFIGS=8
     SAMPLE_CONFIGS_VAL=64
@@ -42,7 +41,7 @@ class Configs(Base):
 
     AUTOCAST=False
     GRADIENT_STEPS=1
-    VALIDATION_FREQUENCY=6   # Number of epochs
+    VALIDATION_FREQUENCY=16   # Number of epochs
 
     CLIP_NORM=1e-2
     WD=2.3e-05
