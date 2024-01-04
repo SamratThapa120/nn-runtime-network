@@ -5,6 +5,51 @@ import os
 import torch
 import numpy as np
 
+import numpy as np
+import networkx as nx
+from collections import deque
+
+def nodes_and_edges_within_k_hops(info, k):
+    # Extract edge information and subset of nodes
+    edge_index = info["edge_index"]
+    subset_nodes = set(info["node_config_ids"])
+
+    # Create a graph from the edge information
+    G = nx.Graph()
+    G.add_edges_from(edge_index)
+
+    # Function to find nodes and edges within k hops using BFS
+    def bfs_k_hops(start, k):
+        visited_nodes = set([start])
+        visited_edges = set()
+        queue = deque([(start, 0)])
+        while queue:
+            current_node, depth = queue.popleft()
+            if depth > k:
+                break
+            for neighbor in G.neighbors(current_node):
+                edge = tuple(sorted([current_node, neighbor]))  # Sort to ensure consistency
+                if edge not in visited_edges:
+                    visited_edges.add(edge)
+                    if neighbor not in visited_nodes:
+                        visited_nodes.add(neighbor)
+                        if depth < k:
+                            queue.append((neighbor, depth + 1))
+        return visited_nodes, visited_edges
+
+    # Find all nodes and edges within k hops for each node in the subset
+    nodes_within_k = set()
+    edges_within_k = set()
+    for node in subset_nodes:
+        nodes_result, edges_result = bfs_k_hops(node, k)
+        nodes_within_k |= nodes_result
+        edges_within_k |= edges_result
+
+    # Convert edges to original indices
+    edge_indices = [i for i, e in enumerate(map(tuple, map(sorted, edge_index))) if tuple(e) in edges_within_k]
+
+    return list(nodes_within_k), edge_indices
+
 def histogram_equalized_sampling(data, max_configs):
     num_bins = max_configs // 2
 
@@ -79,6 +124,7 @@ def partition_graph(edges, nodes, max_nodes=1000):
         for node in partition:
             subgraph_ids[node] = i
     return subgraph_ids
+
 class NpzDataset(Dataset):
     """Holds one data partition (train, test, validation) on device memory."""
 
@@ -87,7 +133,8 @@ class NpzDataset(Dataset):
                  pad_config_nodes_val=-1,normalize_runtime=False,
                  random_config_sampling=True,sample_num=None,
                  isvalid=False,normalizer=None,is_tile=False,transforms=None,histogram_sampling=False,window_sampling=0,
-                 equidistance=False,gst_training=0):
+                 equidistance=False,gst_training=0,hop_length=-1):
+        self.hop_length = hop_length
         self.gst_training = gst_training
         self.equidistance = equidistance
         self.window_sampling = window_sampling
@@ -142,8 +189,24 @@ class NpzDataset(Dataset):
             return (feature_matrix - min_feat) / (max_feat - min_feat)
         
     def load_files(self,index):
-        return dict(np.load(self.files[index]))
+        info =  dict(np.load(self.files[index]))
+        if self.hop_length !=-1:
+            info = self.filter_hops(info)
+        return info
     
+
+    def filter_hops(self,info):
+        nodes_idx,edges_idx = nodes_and_edges_within_k_hops(info,self.hop_length)
+        updated_nodes = {x:i for i,x in enumerate(nodes_idx)}
+        vectorized_replace = np.vectorize(lambda x: updated_nodes[x])
+        if len(edges_idx)>0:
+            info["edge_index"] = vectorized_replace(info["edge_index"][edges_idx])
+        else:
+            info["edge_index"] = info["edge_index"][[]]
+        info["node_config_ids"] = vectorized_replace(info["node_config_ids"])
+        info["node_feat"] = info["node_feat"][nodes_idx]
+        info["node_opcode"] = info["node_opcode"][nodes_idx]
+        return info
     def __getitem__(self, index):
         npz_data = self.load_files(index)
         graph_id = os.path.splitext(os.path.basename(self.files[index]))[0]
@@ -233,6 +296,9 @@ class NpzDataset(Dataset):
             else:
                 data_dict["gst_subgraphs"] = partition_graph(data_dict["edges"].T,node_feats.shape[0],self.gst_training)
         return data_dict
+
+
+    
 class CopyFeatureDataset(NpzDataset):
 
     def __getitem__(self, index):

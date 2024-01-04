@@ -1,2 +1,3 @@
 # nn-runtime-network
-Predict how fast an AI model runs using AI
+Predict how fast a neural network runs using GNNs.
+Download dataset from [here](https://www.kaggle.com/competitions/predict-ai-model-runtime/data).

@@ -1,22 +1,24 @@
 import pandas as pd
 import torch
 import os 
-from ml_graph_timer.model.graphsage import LayoutGraphModel,GraphModelArugments
-from ml_graph_timer.dataset.layout_dataset import NpzDataset,GraphCollator,StreamingCollator
-from ml_graph_timer.dataset.transforms import AddFeatures,LogNormalization,RemoveFeatures,ComposeAll
-
+from ml_graph_timer.model.unified_embedding_gsage import LayoutGraphModel,GraphModelArugments
+from ml_graph_timer.dataset.layout_dataset import NpzDataset,GraphCollator,StreamingCollator,RandomDefaultFusedNpzDataset
+from ml_graph_timer.dataset.transforms import AddFeatures,LogNormalization,RemoveFeatures,ComposeAll,AggregateCategoricalFeats
 from ml_graph_timer.losses.losses import CustomMAELoss,CustomMSELoss
 from allrank.models.losses import listMLE
+from ml_graph_timer.losses.losses import shuffledListMLE
 
 from .base import Base
 
 class Configs(Base):
-    OUTPUTDIR="../workdir/listmle_graphsage_random_nlp_baseline"
+    
+    OUTPUTDIR="../workdir/listmle_graphsage_default_nlp_embedding_hop1"
 
-    TRAIN_DATA_PATH="/app/dataset/various_splits/nlp_random/train"
-    VALID_DATA_PATH="/app/dataset/various_splits/nlp_random/valid"
-    TEST_DATA_PATH="/app/dataset/various_splits/nlp_random/test"
-    NORMALIZER_PATH="/app/dataset/various_splits/all_layout/normalizers/normalizers.npy"
+    TRAIN_DATA_PATH="/app/dataset/various_splits/nlp_default/train"
+    VALID_DATA_PATH="/app/dataset/various_splits/nlp_default/valid"
+    TEST_DATA_PATH="/app/dataset/various_splits/nlp_default/test"
+    # NORMALIZER_PATH="/app/dataset/various_splits/all_layout/normalizers/normalizers.npy"
+    NORMALIZER_PATH=None
     OPTUNA_TUNING_DB="sqlite:///study.db"
     OPTUNA_TUNING_TRAILS= 1000
 
@@ -44,15 +46,15 @@ class Configs(Base):
     VALIDATION_FREQUENCY=6   # Number of epochs
 
     CLIP_NORM=1e-2
-    WD=0.000023
+    WD=0.0
 
-    PRUNING_TOLERANCE=10
+    PRUNING_TOLERANCE=15
     def __init__(self,inference_files=None,inference_text=None,use_numpy=False):
         self.device = "cuda"
         self.model_dims = GraphModelArugments(
             num_opcodes= 120,
             opcode_dim= 128,
-            node_feature_dim= 126+128,
+            node_feature_dim= 309+128,
             node_feature_dropout=0.0,
             node_feature_expand= 1,
             graphsage_in= 512,
@@ -66,12 +68,16 @@ class Configs(Base):
             graphsage_aggr = "mean",
             return_positive_values = False,
             graphsage_project = False,
+            embeddings_dim= 8
         )
         self.model = LayoutGraphModel(self.model_dims)
-        self.transforms = None
-        self.train_dataset = NpzDataset(self.TRAIN_DATA_PATH,min_configs=self.MIN_CONFIGS, max_configs=self.SAMPLE_CONFIGS,normalizers=self.NORMALIZER_PATH,sample_num=self.USE_DATASET_LEN,transforms=self.transforms)
-        self.valid_dataset = NpzDataset(self.VALID_DATA_PATH,min_configs=self.MIN_CONFIGS, max_configs=self.SAMPLE_CONFIGS_VAL,normalizers=self.NORMALIZER_PATH,sample_num = self.USE_DATASET_LEN,random_config_sampling=False,isvalid=True,transforms=self.transforms)
-        self.test_dataset = NpzDataset(self.TEST_DATA_PATH,min_configs=self.MIN_CONFIGS, max_configs=-1,normalizers=self.NORMALIZER_PATH,sample_num = self.USE_DATASET_LEN,random_config_sampling=False,isvalid=True,transforms=self.transforms)
+        self.transforms = ComposeAll([
+            LogNormalization(),
+            AggregateCategoricalFeats(),
+        ])
+        self.train_dataset = NpzDataset(self.TRAIN_DATA_PATH,min_configs=self.MIN_CONFIGS, max_configs=self.SAMPLE_CONFIGS,normalizers=self.NORMALIZER_PATH,sample_num=self.USE_DATASET_LEN,transforms=self.transforms,pad_config_nodes_val=6,hop_length=1)
+        self.valid_dataset = NpzDataset(self.VALID_DATA_PATH,min_configs=self.MIN_CONFIGS, max_configs=self.SAMPLE_CONFIGS_VAL,normalizers=self.NORMALIZER_PATH,sample_num = self.USE_DATASET_LEN,random_config_sampling=False,isvalid=True,transforms=self.transforms,pad_config_nodes_val=6,hop_length=1)
+        self.test_dataset = NpzDataset(self.TEST_DATA_PATH,min_configs=self.MIN_CONFIGS, max_configs=-1,normalizers=self.NORMALIZER_PATH,sample_num = self.USE_DATASET_LEN,random_config_sampling=False,isvalid=True,transforms=self.transforms,pad_config_nodes_val=6,hop_length=1)
 
         print(f"length of train: {len(self.train_dataset)}, length of valid: {len(self.valid_dataset)}, length of test: {len(self.test_dataset)}")
 

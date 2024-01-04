@@ -52,12 +52,12 @@ class Configs(Base):
         self.device = "cuda"
         self.model_dims = GraphModelArugments(
             num_opcodes= 120,
-            opcode_dim= 512,
-            node_feature_dim= 126+512,
+            opcode_dim= 128,
+            node_feature_dim= 126+128,
             node_feature_dropout=0.0,
             node_feature_expand= 1,
-            graphsage_in= 1024,
-            graphsage_hidden= 1024,
+            graphsage_in= 512,
+            graphsage_hidden= 512,
             graphsage_layers= 3,
             graphsage_dropout= 0.0,
             final_dropout= 0.0,
